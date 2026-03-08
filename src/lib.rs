@@ -73,9 +73,22 @@ pub fn total_address_count(prefix: u8) -> Result<u64, CidrParseError> {
     Ok(1u64 << (32 - u32::from(prefix)))
 }
 
+pub fn usable_host_count(prefix: u8) -> Result<u64, CidrParseError> {
+    let total = total_address_count(prefix)?;
+
+    if prefix >= 31 {
+        return Ok(total);
+    }
+
+    Ok(total - 2)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{cidr_contains, network_bounds, parse_cidr, total_address_count, CidrParseError};
+    use super::{
+        cidr_contains, network_bounds, parse_cidr, total_address_count, usable_host_count,
+        CidrParseError,
+    };
     use std::net::Ipv4Addr;
 
     #[test]
@@ -206,5 +219,25 @@ mod tests {
     #[test]
     fn rejects_invalid_prefix_for_total_address_count() {
         assert_eq!(total_address_count(33), Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn computes_usable_host_count_for_common_subnet() {
+        assert_eq!(usable_host_count(24), Ok(254));
+    }
+
+    #[test]
+    fn computes_usable_host_count_for_point_to_point_subnet() {
+        assert_eq!(usable_host_count(31), Ok(2));
+    }
+
+    #[test]
+    fn computes_usable_host_count_for_single_host_subnet() {
+        assert_eq!(usable_host_count(32), Ok(1));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_usable_host_count() {
+        assert_eq!(usable_host_count(40), Err(CidrParseError::InvalidPrefix));
     }
 }
