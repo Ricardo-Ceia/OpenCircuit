@@ -145,12 +145,26 @@ pub fn is_usable_host(
     Ok(true)
 }
 
+pub fn subnet_mask(prefix: u8) -> Result<Ipv4Addr, CidrParseError> {
+    if prefix > 32 {
+        return Err(CidrParseError::InvalidPrefix);
+    }
+
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(prefix))
+    };
+
+    Ok(Ipv4Addr::from(mask))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         cidr_contains, first_usable_host, is_broadcast_address, is_network_address, is_usable_host,
-        last_usable_host, network_bounds, parse_cidr, total_address_count, usable_host_count,
-        CidrParseError,
+        last_usable_host, network_bounds, parse_cidr, subnet_mask, total_address_count,
+        usable_host_count, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -464,5 +478,21 @@ mod tests {
             Ipv4Addr::new(192, 168, 1, 10),
         );
         assert_eq!(usable, Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn computes_subnet_mask_for_common_prefix() {
+        assert_eq!(subnet_mask(24), Ok(Ipv4Addr::new(255, 255, 255, 0)));
+    }
+
+    #[test]
+    fn computes_subnet_mask_for_edge_prefixes() {
+        assert_eq!(subnet_mask(0), Ok(Ipv4Addr::new(0, 0, 0, 0)));
+        assert_eq!(subnet_mask(32), Ok(Ipv4Addr::new(255, 255, 255, 255)));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_subnet_mask() {
+        assert_eq!(subnet_mask(33), Err(CidrParseError::InvalidPrefix));
     }
 }
