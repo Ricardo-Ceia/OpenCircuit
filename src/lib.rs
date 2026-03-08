@@ -65,9 +65,17 @@ pub fn cidr_contains(
     Ok(candidate_u32 >= u32::from(network) && candidate_u32 <= u32::from(broadcast))
 }
 
+pub fn total_address_count(prefix: u8) -> Result<u64, CidrParseError> {
+    if prefix > 32 {
+        return Err(CidrParseError::InvalidPrefix);
+    }
+
+    Ok(1u64 << (32 - u32::from(prefix)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{cidr_contains, network_bounds, parse_cidr, CidrParseError};
+    use super::{cidr_contains, network_bounds, parse_cidr, total_address_count, CidrParseError};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -178,5 +186,25 @@ mod tests {
             Ipv4Addr::new(192, 168, 1, 5),
         );
         assert_eq!(contains, Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn computes_total_address_count_for_common_subnet() {
+        assert_eq!(total_address_count(24), Ok(256));
+    }
+
+    #[test]
+    fn computes_total_address_count_for_single_host() {
+        assert_eq!(total_address_count(32), Ok(1));
+    }
+
+    #[test]
+    fn computes_total_address_count_for_entire_ipv4_space() {
+        assert_eq!(total_address_count(0), Ok(4_294_967_296));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_total_address_count() {
+        assert_eq!(total_address_count(33), Err(CidrParseError::InvalidPrefix));
     }
 }
