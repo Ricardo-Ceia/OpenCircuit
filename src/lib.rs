@@ -83,11 +83,20 @@ pub fn usable_host_count(prefix: u8) -> Result<u64, CidrParseError> {
     Ok(total - 2)
 }
 
+pub fn is_network_address(
+    network_ip: Ipv4Addr,
+    prefix: u8,
+    candidate: Ipv4Addr,
+) -> Result<bool, CidrParseError> {
+    let (network, _) = network_bounds(network_ip, prefix)?;
+    Ok(candidate == network)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        cidr_contains, network_bounds, parse_cidr, total_address_count, usable_host_count,
-        CidrParseError,
+        cidr_contains, is_network_address, network_bounds, parse_cidr, total_address_count,
+        usable_host_count, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -239,5 +248,35 @@ mod tests {
     #[test]
     fn rejects_invalid_prefix_for_usable_host_count() {
         assert_eq!(usable_host_count(40), Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn detects_network_address_when_candidate_matches_network() {
+        let result = is_network_address(
+            Ipv4Addr::new(192, 168, 1, 42),
+            24,
+            Ipv4Addr::new(192, 168, 1, 0),
+        );
+        assert_eq!(result, Ok(true));
+    }
+
+    #[test]
+    fn rejects_non_network_candidate() {
+        let result = is_network_address(
+            Ipv4Addr::new(192, 168, 1, 42),
+            24,
+            Ipv4Addr::new(192, 168, 1, 1),
+        );
+        assert_eq!(result, Ok(false));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_is_network_address() {
+        let result = is_network_address(
+            Ipv4Addr::new(192, 168, 1, 42),
+            33,
+            Ipv4Addr::new(192, 168, 1, 0),
+        );
+        assert_eq!(result, Err(CidrParseError::InvalidPrefix));
     }
 }
