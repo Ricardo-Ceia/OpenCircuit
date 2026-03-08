@@ -111,11 +111,22 @@ pub fn first_usable_host(network_ip: Ipv4Addr, prefix: u8) -> Result<Ipv4Addr, C
     Ok(Ipv4Addr::from(u32::from(network) + 1))
 }
 
+pub fn last_usable_host(network_ip: Ipv4Addr, prefix: u8) -> Result<Ipv4Addr, CidrParseError> {
+    let (_, broadcast) = network_bounds(network_ip, prefix)?;
+
+    if prefix >= 31 {
+        return Ok(broadcast);
+    }
+
+    Ok(Ipv4Addr::from(u32::from(broadcast) - 1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        cidr_contains, first_usable_host, is_broadcast_address, is_network_address, network_bounds,
-        parse_cidr, total_address_count, usable_host_count, CidrParseError,
+        cidr_contains, first_usable_host, is_broadcast_address, is_network_address,
+        last_usable_host, network_bounds, parse_cidr, total_address_count, usable_host_count,
+        CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -351,5 +362,29 @@ mod tests {
     fn rejects_invalid_prefix_for_first_usable_host() {
         let first = first_usable_host(Ipv4Addr::new(192, 168, 1, 42), 40);
         assert_eq!(first, Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn computes_last_usable_host_for_common_subnet() {
+        let last = last_usable_host(Ipv4Addr::new(192, 168, 1, 42), 24);
+        assert_eq!(last, Ok(Ipv4Addr::new(192, 168, 1, 254)));
+    }
+
+    #[test]
+    fn computes_last_usable_host_for_point_to_point_subnet() {
+        let last = last_usable_host(Ipv4Addr::new(10, 0, 0, 1), 31);
+        assert_eq!(last, Ok(Ipv4Addr::new(10, 0, 0, 1)));
+    }
+
+    #[test]
+    fn computes_last_usable_host_for_single_host_subnet() {
+        let last = last_usable_host(Ipv4Addr::new(10, 0, 0, 7), 32);
+        assert_eq!(last, Ok(Ipv4Addr::new(10, 0, 0, 7)));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_last_usable_host() {
+        let last = last_usable_host(Ipv4Addr::new(192, 168, 1, 42), 40);
+        assert_eq!(last, Err(CidrParseError::InvalidPrefix));
     }
 }
