@@ -159,12 +159,17 @@ pub fn subnet_mask(prefix: u8) -> Result<Ipv4Addr, CidrParseError> {
     Ok(Ipv4Addr::from(mask))
 }
 
+pub fn wildcard_mask(prefix: u8) -> Result<Ipv4Addr, CidrParseError> {
+    let subnet = subnet_mask(prefix)?;
+    Ok(Ipv4Addr::from(!u32::from(subnet)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         cidr_contains, first_usable_host, is_broadcast_address, is_network_address, is_usable_host,
         last_usable_host, network_bounds, parse_cidr, subnet_mask, total_address_count,
-        usable_host_count, CidrParseError,
+        usable_host_count, wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -494,5 +499,21 @@ mod tests {
     #[test]
     fn rejects_invalid_prefix_for_subnet_mask() {
         assert_eq!(subnet_mask(33), Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn computes_wildcard_mask_for_common_prefix() {
+        assert_eq!(wildcard_mask(24), Ok(Ipv4Addr::new(0, 0, 0, 255)));
+    }
+
+    #[test]
+    fn computes_wildcard_mask_for_edge_prefixes() {
+        assert_eq!(wildcard_mask(0), Ok(Ipv4Addr::new(255, 255, 255, 255)));
+        assert_eq!(wildcard_mask(32), Ok(Ipv4Addr::new(0, 0, 0, 0)));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_wildcard_mask() {
+        assert_eq!(wildcard_mask(33), Err(CidrParseError::InvalidPrefix));
     }
 }
