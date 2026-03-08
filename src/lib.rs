@@ -54,9 +54,20 @@ pub fn network_bounds(ip: Ipv4Addr, prefix: u8) -> Result<(Ipv4Addr, Ipv4Addr), 
     Ok((Ipv4Addr::from(network), Ipv4Addr::from(broadcast)))
 }
 
+pub fn cidr_contains(
+    network_ip: Ipv4Addr,
+    prefix: u8,
+    candidate: Ipv4Addr,
+) -> Result<bool, CidrParseError> {
+    let (network, broadcast) = network_bounds(network_ip, prefix)?;
+    let candidate_u32 = u32::from(candidate);
+
+    Ok(candidate_u32 >= u32::from(network) && candidate_u32 <= u32::from(broadcast))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{network_bounds, parse_cidr, CidrParseError};
+    use super::{cidr_contains, network_bounds, parse_cidr, CidrParseError};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -137,5 +148,35 @@ mod tests {
     fn rejects_invalid_prefix_for_bounds() {
         let bounds = network_bounds(Ipv4Addr::new(192, 168, 1, 1), 33);
         assert_eq!(bounds, Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn contains_address_inside_subnet() {
+        let contains = cidr_contains(
+            Ipv4Addr::new(192, 168, 1, 0),
+            24,
+            Ipv4Addr::new(192, 168, 1, 42),
+        );
+        assert_eq!(contains, Ok(true));
+    }
+
+    #[test]
+    fn excludes_address_outside_subnet() {
+        let contains = cidr_contains(
+            Ipv4Addr::new(192, 168, 1, 0),
+            24,
+            Ipv4Addr::new(192, 168, 2, 1),
+        );
+        assert_eq!(contains, Ok(false));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_contains() {
+        let contains = cidr_contains(
+            Ipv4Addr::new(192, 168, 1, 0),
+            40,
+            Ipv4Addr::new(192, 168, 1, 5),
+        );
+        assert_eq!(contains, Err(CidrParseError::InvalidPrefix));
     }
 }
