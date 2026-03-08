@@ -36,9 +36,27 @@ pub fn parse_cidr(input: &str) -> Result<(Ipv4Addr, u8), CidrParseError> {
     Ok((ip, prefix))
 }
 
+pub fn network_bounds(ip: Ipv4Addr, prefix: u8) -> Result<(Ipv4Addr, Ipv4Addr), CidrParseError> {
+    if prefix > 32 {
+        return Err(CidrParseError::InvalidPrefix);
+    }
+
+    let ip_u32 = u32::from(ip);
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(prefix))
+    };
+
+    let network = ip_u32 & mask;
+    let broadcast = network | !mask;
+
+    Ok((Ipv4Addr::from(network), Ipv4Addr::from(broadcast)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_cidr, CidrParseError};
+    use super::{network_bounds, parse_cidr, CidrParseError};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -83,5 +101,41 @@ mod tests {
             parse_cidr("192.168.1.0/33"),
             Err(CidrParseError::InvalidPrefix)
         );
+    }
+
+    #[test]
+    fn computes_bounds_for_class_c_subnet() {
+        let bounds = network_bounds(Ipv4Addr::new(192, 168, 1, 42), 24);
+        assert_eq!(
+            bounds,
+            Ok((
+                Ipv4Addr::new(192, 168, 1, 0),
+                Ipv4Addr::new(192, 168, 1, 255)
+            ))
+        );
+    }
+
+    #[test]
+    fn computes_bounds_for_single_host_subnet() {
+        let bounds = network_bounds(Ipv4Addr::new(10, 0, 0, 7), 32);
+        assert_eq!(
+            bounds,
+            Ok((Ipv4Addr::new(10, 0, 0, 7), Ipv4Addr::new(10, 0, 0, 7)))
+        );
+    }
+
+    #[test]
+    fn computes_bounds_for_entire_ipv4_space() {
+        let bounds = network_bounds(Ipv4Addr::new(203, 0, 113, 55), 0);
+        assert_eq!(
+            bounds,
+            Ok((Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(255, 255, 255, 255)))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_bounds() {
+        let bounds = network_bounds(Ipv4Addr::new(192, 168, 1, 1), 33);
+        assert_eq!(bounds, Err(CidrParseError::InvalidPrefix));
     }
 }
