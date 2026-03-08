@@ -121,10 +121,34 @@ pub fn last_usable_host(network_ip: Ipv4Addr, prefix: u8) -> Result<Ipv4Addr, Ci
     Ok(Ipv4Addr::from(u32::from(broadcast) - 1))
 }
 
+pub fn is_usable_host(
+    network_ip: Ipv4Addr,
+    prefix: u8,
+    candidate: Ipv4Addr,
+) -> Result<bool, CidrParseError> {
+    if !cidr_contains(network_ip, prefix, candidate)? {
+        return Ok(false);
+    }
+
+    if prefix >= 31 {
+        return Ok(true);
+    }
+
+    if is_network_address(network_ip, prefix, candidate)? {
+        return Ok(false);
+    }
+
+    if is_broadcast_address(network_ip, prefix, candidate)? {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        cidr_contains, first_usable_host, is_broadcast_address, is_network_address,
+        cidr_contains, first_usable_host, is_broadcast_address, is_network_address, is_usable_host,
         last_usable_host, network_bounds, parse_cidr, total_address_count, usable_host_count,
         CidrParseError,
     };
@@ -386,5 +410,59 @@ mod tests {
     fn rejects_invalid_prefix_for_last_usable_host() {
         let last = last_usable_host(Ipv4Addr::new(192, 168, 1, 42), 40);
         assert_eq!(last, Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn treats_host_inside_common_subnet_as_usable() {
+        let usable = is_usable_host(
+            Ipv4Addr::new(192, 168, 1, 42),
+            24,
+            Ipv4Addr::new(192, 168, 1, 10),
+        );
+        assert_eq!(usable, Ok(true));
+    }
+
+    #[test]
+    fn rejects_network_and_broadcast_in_common_subnet() {
+        let network = is_usable_host(
+            Ipv4Addr::new(192, 168, 1, 42),
+            24,
+            Ipv4Addr::new(192, 168, 1, 0),
+        );
+        let broadcast = is_usable_host(
+            Ipv4Addr::new(192, 168, 1, 42),
+            24,
+            Ipv4Addr::new(192, 168, 1, 255),
+        );
+        assert_eq!(network, Ok(false));
+        assert_eq!(broadcast, Ok(false));
+    }
+
+    #[test]
+    fn rejects_candidate_outside_subnet_for_usable_host() {
+        let usable = is_usable_host(
+            Ipv4Addr::new(192, 168, 1, 42),
+            24,
+            Ipv4Addr::new(192, 168, 2, 10),
+        );
+        assert_eq!(usable, Ok(false));
+    }
+
+    #[test]
+    fn treats_all_addresses_as_usable_for_31() {
+        let first = is_usable_host(Ipv4Addr::new(10, 0, 0, 1), 31, Ipv4Addr::new(10, 0, 0, 0));
+        let second = is_usable_host(Ipv4Addr::new(10, 0, 0, 1), 31, Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(first, Ok(true));
+        assert_eq!(second, Ok(true));
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_is_usable_host() {
+        let usable = is_usable_host(
+            Ipv4Addr::new(192, 168, 1, 42),
+            40,
+            Ipv4Addr::new(192, 168, 1, 10),
+        );
+        assert_eq!(usable, Err(CidrParseError::InvalidPrefix));
     }
 }
