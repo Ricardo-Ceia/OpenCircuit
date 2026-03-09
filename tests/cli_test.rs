@@ -34,7 +34,7 @@ fn normalize_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>"));
 }
 
 #[test]
@@ -208,5 +208,45 @@ fn masks_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>"));
+}
+
+#[test]
+fn range_command_outputs_usable_host_range() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["range", "192.168.1.42/24"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "cidr=192.168.1.0/24\nfirst=192.168.1.1\nlast=192.168.1.254\nusable=254\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn range_command_fails_for_invalid_cidr() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["range", "nope/24"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Invalid CIDR"));
+}
+
+#[test]
+fn range_command_fails_with_missing_argument() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .arg("range")
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>"));
 }

@@ -7,7 +7,7 @@ use opencircuit::{
     usable_host_count, usable_host_range, wildcard_mask,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -97,6 +97,23 @@ fn run(args: &[String]) -> Result<String, String> {
 
             Ok(format!(
                 "cidr={normalized}\nprefix={prefix}\nsubnet_mask={subnet}\nwildcard_mask={wildcard}"
+            ))
+        }
+        "range" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let (ip, prefix) =
+                parse_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let normalized =
+                parse_and_normalize_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let (first, last) =
+                usable_host_range(ip, prefix).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let usable = usable_host_count(prefix).map_err(|err| format!("Invalid CIDR: {err}"))?;
+
+            Ok(format!(
+                "cidr={normalized}\nfirst={first}\nlast={last}\nusable={usable}"
             ))
         }
         _ => Err(String::from(USAGE)),
