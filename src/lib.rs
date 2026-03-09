@@ -202,13 +202,22 @@ pub fn parse_and_normalize_cidr(input: &str) -> Result<String, CidrParseError> {
     normalize_cidr(ip, prefix)
 }
 
+pub fn usable_host_range(
+    network_ip: Ipv4Addr,
+    prefix: u8,
+) -> Result<(Ipv4Addr, Ipv4Addr), CidrParseError> {
+    let first = first_usable_host(network_ip, prefix)?;
+    let last = last_usable_host(network_ip, prefix)?;
+    Ok((first, last))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         cidr_contains, first_usable_host, format_cidr, is_broadcast_address, is_network_address,
         is_usable_host, last_usable_host, network_bounds, normalize_cidr, parse_and_normalize_cidr,
         parse_cidr, prefix_from_subnet_mask, subnet_mask, total_address_count, usable_host_count,
-        wildcard_mask, CidrParseError,
+        usable_host_range, wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -634,6 +643,33 @@ mod tests {
         assert_eq!(
             parse_and_normalize_cidr("not-an-ip/24"),
             Err(CidrParseError::InvalidIp)
+        );
+    }
+
+    #[test]
+    fn computes_usable_host_range_for_common_subnet() {
+        assert_eq!(
+            usable_host_range(Ipv4Addr::new(192, 168, 1, 42), 24),
+            Ok((
+                Ipv4Addr::new(192, 168, 1, 1),
+                Ipv4Addr::new(192, 168, 1, 254)
+            ))
+        );
+    }
+
+    #[test]
+    fn computes_usable_host_range_for_point_to_point_subnet() {
+        assert_eq!(
+            usable_host_range(Ipv4Addr::new(10, 0, 0, 1), 31),
+            Ok((Ipv4Addr::new(10, 0, 0, 0), Ipv4Addr::new(10, 0, 0, 1)))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_usable_host_range() {
+        assert_eq!(
+            usable_host_range(Ipv4Addr::new(192, 168, 1, 42), 40),
+            Err(CidrParseError::InvalidPrefix)
         );
     }
 }
