@@ -6,6 +6,7 @@ pub enum CidrParseError {
     MissingSlash,
     InvalidIp,
     InvalidPrefix,
+    InvalidSubnetMask,
 }
 
 impl fmt::Display for CidrParseError {
@@ -14,6 +15,9 @@ impl fmt::Display for CidrParseError {
             Self::MissingSlash => write!(f, "CIDR must include '/' separator"),
             Self::InvalidIp => write!(f, "CIDR contains an invalid IPv4 address"),
             Self::InvalidPrefix => write!(f, "CIDR prefix must be an integer between 0 and 32"),
+            Self::InvalidSubnetMask => {
+                write!(f, "Subnet mask must contain contiguous leading 1 bits")
+            }
         }
     }
 }
@@ -164,12 +168,28 @@ pub fn wildcard_mask(prefix: u8) -> Result<Ipv4Addr, CidrParseError> {
     Ok(Ipv4Addr::from(!u32::from(subnet)))
 }
 
+pub fn prefix_from_subnet_mask(mask: Ipv4Addr) -> Result<u8, CidrParseError> {
+    let mask_u32 = u32::from(mask);
+    let prefix = mask_u32.leading_ones() as u8;
+    let canonical_mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(prefix))
+    };
+
+    if mask_u32 != canonical_mask {
+        return Err(CidrParseError::InvalidSubnetMask);
+    }
+
+    Ok(prefix)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         cidr_contains, first_usable_host, is_broadcast_address, is_network_address, is_usable_host,
-        last_usable_host, network_bounds, parse_cidr, subnet_mask, total_address_count,
-        usable_host_count, wildcard_mask, CidrParseError,
+        last_usable_host, network_bounds, parse_cidr, prefix_from_subnet_mask, subnet_mask,
+        total_address_count, usable_host_count, wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -515,5 +535,30 @@ mod tests {
     #[test]
     fn rejects_invalid_prefix_for_wildcard_mask() {
         assert_eq!(wildcard_mask(33), Err(CidrParseError::InvalidPrefix));
+    }
+
+    #[test]
+    fn derives_prefix_from_valid_subnet_masks() {
+        assert_eq!(
+            prefix_from_subnet_mask(Ipv4Addr::new(255, 255, 255, 0)),
+            Ok(24)
+        );
+        assert_eq!(prefix_from_subnet_mask(Ipv4Addr::new(0, 0, 0, 0)), Ok(0));
+        assert_eq!(
+            prefix_from_subnet_mask(Ipv4Addr::new(255, 255, 255, 255)),
+            Ok(32)
+        );
+    }
+
+    #[test]
+    fn rejects_non_contiguous_subnet_masks() {
+        assert_eq!(
+            prefix_from_subnet_mask(Ipv4Addr::new(255, 0, 255, 0)),
+            Err(CidrParseError::InvalidSubnetMask)
+        );
+        assert_eq!(
+            prefix_from_subnet_mask(Ipv4Addr::new(255, 255, 254, 255)),
+            Err(CidrParseError::InvalidSubnetMask)
+        );
     }
 }
