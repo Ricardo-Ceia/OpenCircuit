@@ -81,6 +81,10 @@ pub fn is_loopback_ipv4(ip: Ipv4Addr) -> bool {
     ip.octets()[0] == 127
 }
 
+pub fn is_multicast_ipv4(ip: Ipv4Addr) -> bool {
+    (224..=239).contains(&ip.octets()[0])
+}
+
 pub fn network_bounds(ip: Ipv4Addr, prefix: u8) -> Result<(Ipv4Addr, Ipv4Addr), CidrParseError> {
     if prefix > 32 {
         return Err(CidrParseError::InvalidPrefix);
@@ -256,10 +260,10 @@ pub fn usable_host_range(
 mod tests {
     use super::{
         cidr_contains, first_usable_host, format_cidr, is_broadcast_address, is_link_local_ipv4,
-        is_loopback_ipv4, is_network_address, is_private_ipv4, is_usable_host, last_usable_host,
-        network_bounds, next_ipv4, normalize_cidr, parse_and_normalize_cidr, parse_cidr,
-        prefix_from_subnet_mask, prev_ipv4, subnet_mask, total_address_count, usable_host_count,
-        usable_host_range, wildcard_mask, CidrParseError,
+        is_loopback_ipv4, is_multicast_ipv4, is_network_address, is_private_ipv4, is_usable_host,
+        last_usable_host, network_bounds, next_ipv4, normalize_cidr, parse_and_normalize_cidr,
+        parse_cidr, prefix_from_subnet_mask, prev_ipv4, subnet_mask, total_address_count,
+        usable_host_count, usable_host_range, wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -798,5 +802,18 @@ mod tests {
         assert!(!is_loopback_ipv4(Ipv4Addr::new(126, 255, 255, 255)));
         assert!(!is_loopback_ipv4(Ipv4Addr::new(128, 0, 0, 0)));
         assert!(!is_loopback_ipv4(Ipv4Addr::new(10, 0, 0, 1)));
+    }
+
+    #[test]
+    fn detects_multicast_ipv4_range() {
+        assert!(is_multicast_ipv4(Ipv4Addr::new(224, 0, 0, 1)));
+        assert!(is_multicast_ipv4(Ipv4Addr::new(239, 255, 255, 255)));
+    }
+
+    #[test]
+    fn rejects_non_multicast_ipv4_addresses() {
+        assert!(!is_multicast_ipv4(Ipv4Addr::new(223, 255, 255, 255)));
+        assert!(!is_multicast_ipv4(Ipv4Addr::new(240, 0, 0, 0)));
+        assert!(!is_multicast_ipv4(Ipv4Addr::new(10, 0, 0, 1)));
     }
 }
