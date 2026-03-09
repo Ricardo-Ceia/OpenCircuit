@@ -34,5 +34,32 @@ fn normalize_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage: opencircuit normalize <ipv4-cidr>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>"));
+}
+
+#[test]
+fn info_command_outputs_cidr_details() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["info", "192.168.1.42/24"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "cidr=192.168.1.0/24\nnetwork=192.168.1.0\nbroadcast=192.168.1.255\nfirst_usable=192.168.1.1\nlast_usable=192.168.1.254\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn info_command_fails_for_invalid_cidr() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["info", "bad/24"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Invalid CIDR"));
 }
