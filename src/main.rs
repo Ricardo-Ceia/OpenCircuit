@@ -7,7 +7,7 @@ use opencircuit::{
     usable_host_count, usable_host_range, wildcard_mask,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -135,6 +135,40 @@ fn run(args: &[String]) -> Result<String, String> {
                 u32::from(start_a) <= u32::from(end_b) && u32::from(start_b) <= u32::from(end_a);
 
             Ok(overlaps.to_string())
+        }
+        "relation" => {
+            if args.len() != 4 {
+                return Err(String::from(USAGE));
+            }
+
+            let (ip_a, prefix_a) =
+                parse_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let (ip_b, prefix_b) =
+                parse_cidr(&args[3]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+
+            let (start_a, end_a) =
+                network_bounds(ip_a, prefix_a).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let (start_b, end_b) =
+                network_bounds(ip_b, prefix_b).map_err(|err| format!("Invalid CIDR: {err}"))?;
+
+            let start_a_u32 = u32::from(start_a);
+            let end_a_u32 = u32::from(end_a);
+            let start_b_u32 = u32::from(start_b);
+            let end_b_u32 = u32::from(end_b);
+
+            let relation = if start_a_u32 == start_b_u32 && end_a_u32 == end_b_u32 {
+                "equal"
+            } else if start_a_u32 <= start_b_u32 && end_a_u32 >= end_b_u32 {
+                "a_contains_b"
+            } else if start_b_u32 <= start_a_u32 && end_b_u32 >= end_a_u32 {
+                "b_contains_a"
+            } else if start_a_u32 <= end_b_u32 && start_b_u32 <= end_a_u32 {
+                "overlap"
+            } else {
+                "disjoint"
+            };
+
+            Ok(String::from(relation))
         }
         _ => Err(String::from(USAGE)),
     }
