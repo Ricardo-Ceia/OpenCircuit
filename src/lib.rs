@@ -40,6 +40,15 @@ pub fn parse_cidr(input: &str) -> Result<(Ipv4Addr, u8), CidrParseError> {
     Ok((ip, prefix))
 }
 
+pub fn next_ipv4(ip: Ipv4Addr) -> Option<Ipv4Addr> {
+    let value = u32::from(ip);
+    if value == u32::MAX {
+        return None;
+    }
+
+    Some(Ipv4Addr::from(value + 1))
+}
+
 pub fn network_bounds(ip: Ipv4Addr, prefix: u8) -> Result<(Ipv4Addr, Ipv4Addr), CidrParseError> {
     if prefix > 32 {
         return Err(CidrParseError::InvalidPrefix);
@@ -215,9 +224,9 @@ pub fn usable_host_range(
 mod tests {
     use super::{
         cidr_contains, first_usable_host, format_cidr, is_broadcast_address, is_network_address,
-        is_usable_host, last_usable_host, network_bounds, normalize_cidr, parse_and_normalize_cidr,
-        parse_cidr, prefix_from_subnet_mask, subnet_mask, total_address_count, usable_host_count,
-        usable_host_range, wildcard_mask, CidrParseError,
+        is_usable_host, last_usable_host, network_bounds, next_ipv4, normalize_cidr,
+        parse_and_normalize_cidr, parse_cidr, prefix_from_subnet_mask, subnet_mask,
+        total_address_count, usable_host_count, usable_host_range, wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -671,5 +680,26 @@ mod tests {
             usable_host_range(Ipv4Addr::new(192, 168, 1, 42), 40),
             Err(CidrParseError::InvalidPrefix)
         );
+    }
+
+    #[test]
+    fn computes_next_ipv4_for_regular_address() {
+        assert_eq!(
+            next_ipv4(Ipv4Addr::new(192, 168, 1, 42)),
+            Some(Ipv4Addr::new(192, 168, 1, 43))
+        );
+    }
+
+    #[test]
+    fn computes_next_ipv4_with_octet_carry() {
+        assert_eq!(
+            next_ipv4(Ipv4Addr::new(10, 0, 0, 255)),
+            Some(Ipv4Addr::new(10, 0, 1, 0))
+        );
+    }
+
+    #[test]
+    fn returns_none_for_max_ipv4() {
+        assert_eq!(next_ipv4(Ipv4Addr::new(255, 255, 255, 255)), None);
     }
 }
