@@ -2,10 +2,11 @@ use std::env;
 use std::net::Ipv4Addr;
 
 use opencircuit::{
-    cidr_contains, network_bounds, parse_and_normalize_cidr, parse_cidr, usable_host_range,
+    cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
+    network_bounds, parse_and_normalize_cidr, parse_cidr, usable_host_range,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -50,6 +51,23 @@ fn run(args: &[String]) -> Result<String, String> {
                 .map_err(|err| format!("Invalid CIDR: {err}"))?;
 
             Ok(contains.to_string())
+        }
+        "classify" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let ip = args[2]
+                .parse::<Ipv4Addr>()
+                .map_err(|_| String::from("Invalid IPv4 address"))?;
+
+            Ok(format!(
+                "ip={ip}\nprivate={}\nlink_local={}\nloopback={}\nmulticast={}",
+                is_private_ipv4(ip),
+                is_link_local_ipv4(ip),
+                is_loopback_ipv4(ip),
+                is_multicast_ipv4(ip)
+            ))
         }
         _ => Err(String::from(USAGE)),
     }

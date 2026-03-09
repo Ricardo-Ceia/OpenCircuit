@@ -34,7 +34,7 @@ fn normalize_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>"));
 }
 
 #[test]
@@ -92,6 +92,50 @@ fn contains_command_outputs_false_when_ip_is_outside_cidr() {
 fn contains_command_fails_for_invalid_ip_argument() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["contains", "192.168.1.0/24", "nope"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Invalid IPv4 address"));
+}
+
+#[test]
+fn classify_command_outputs_expected_flags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["classify", "192.168.1.10"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "ip=192.168.1.10\nprivate=true\nlink_local=false\nloopback=false\nmulticast=false\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn classify_command_detects_link_local_and_loopback_separately() {
+    let link_local = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["classify", "169.254.1.20"])
+        .output()
+        .expect("failed to run opencircuit binary");
+    let loopback = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["classify", "127.0.0.1"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(link_local.status.success());
+    assert!(String::from_utf8_lossy(&link_local.stdout).contains("link_local=true"));
+    assert!(loopback.status.success());
+    assert!(String::from_utf8_lossy(&loopback.stdout).contains("loopback=true"));
+}
+
+#[test]
+fn classify_command_fails_for_invalid_ip() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["classify", "nope"])
         .output()
         .expect("failed to run opencircuit binary");
 
