@@ -184,12 +184,20 @@ pub fn prefix_from_subnet_mask(mask: Ipv4Addr) -> Result<u8, CidrParseError> {
     Ok(prefix)
 }
 
+pub fn format_cidr(ip: Ipv4Addr, prefix: u8) -> Result<String, CidrParseError> {
+    if prefix > 32 {
+        return Err(CidrParseError::InvalidPrefix);
+    }
+
+    Ok(format!("{ip}/{prefix}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        cidr_contains, first_usable_host, is_broadcast_address, is_network_address, is_usable_host,
-        last_usable_host, network_bounds, parse_cidr, prefix_from_subnet_mask, subnet_mask,
-        total_address_count, usable_host_count, wildcard_mask, CidrParseError,
+        cidr_contains, first_usable_host, format_cidr, is_broadcast_address, is_network_address,
+        is_usable_host, last_usable_host, network_bounds, parse_cidr, prefix_from_subnet_mask,
+        subnet_mask, total_address_count, usable_host_count, wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -559,6 +567,22 @@ mod tests {
         assert_eq!(
             prefix_from_subnet_mask(Ipv4Addr::new(255, 255, 254, 255)),
             Err(CidrParseError::InvalidSubnetMask)
+        );
+    }
+
+    #[test]
+    fn formats_valid_cidr_string() {
+        assert_eq!(
+            format_cidr(Ipv4Addr::new(192, 168, 1, 0), 24),
+            Ok(String::from("192.168.1.0/24"))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_format_cidr() {
+        assert_eq!(
+            format_cidr(Ipv4Addr::new(192, 168, 1, 0), 33),
+            Err(CidrParseError::InvalidPrefix)
         );
     }
 }
