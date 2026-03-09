@@ -3,10 +3,11 @@ use std::net::Ipv4Addr;
 
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
-    network_bounds, parse_and_normalize_cidr, parse_cidr, usable_host_range,
+    network_bounds, parse_and_normalize_cidr, parse_cidr, total_address_count, usable_host_count,
+    usable_host_range,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -68,6 +69,20 @@ fn run(args: &[String]) -> Result<String, String> {
                 is_loopback_ipv4(ip),
                 is_multicast_ipv4(ip)
             ))
+        }
+        "summary" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let (_, prefix) = parse_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let normalized =
+                parse_and_normalize_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let total =
+                total_address_count(prefix).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let usable = usable_host_count(prefix).map_err(|err| format!("Invalid CIDR: {err}"))?;
+
+            Ok(format!("cidr={normalized} total={total} usable={usable}"))
         }
         _ => Err(String::from(USAGE)),
     }
