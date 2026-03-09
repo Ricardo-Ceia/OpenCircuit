@@ -192,12 +192,18 @@ pub fn format_cidr(ip: Ipv4Addr, prefix: u8) -> Result<String, CidrParseError> {
     Ok(format!("{ip}/{prefix}"))
 }
 
+pub fn normalize_cidr(ip: Ipv4Addr, prefix: u8) -> Result<String, CidrParseError> {
+    let (network, _) = network_bounds(ip, prefix)?;
+    format_cidr(network, prefix)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         cidr_contains, first_usable_host, format_cidr, is_broadcast_address, is_network_address,
-        is_usable_host, last_usable_host, network_bounds, parse_cidr, prefix_from_subnet_mask,
-        subnet_mask, total_address_count, usable_host_count, wildcard_mask, CidrParseError,
+        is_usable_host, last_usable_host, network_bounds, normalize_cidr, parse_cidr,
+        prefix_from_subnet_mask, subnet_mask, total_address_count, usable_host_count,
+        wildcard_mask, CidrParseError,
     };
     use std::net::Ipv4Addr;
 
@@ -582,6 +588,30 @@ mod tests {
     fn rejects_invalid_prefix_for_format_cidr() {
         assert_eq!(
             format_cidr(Ipv4Addr::new(192, 168, 1, 0), 33),
+            Err(CidrParseError::InvalidPrefix)
+        );
+    }
+
+    #[test]
+    fn normalizes_host_cidr_to_network_cidr() {
+        assert_eq!(
+            normalize_cidr(Ipv4Addr::new(192, 168, 1, 42), 24),
+            Ok(String::from("192.168.1.0/24"))
+        );
+    }
+
+    #[test]
+    fn keeps_already_normalized_cidr_unchanged() {
+        assert_eq!(
+            normalize_cidr(Ipv4Addr::new(10, 0, 0, 0), 8),
+            Ok(String::from("10.0.0.0/8"))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_prefix_for_normalize_cidr() {
+        assert_eq!(
+            normalize_cidr(Ipv4Addr::new(192, 168, 1, 42), 40),
             Err(CidrParseError::InvalidPrefix)
         );
     }
