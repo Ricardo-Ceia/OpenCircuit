@@ -3,6 +3,8 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::time::{Duration, SystemTime};
 
+use dns_lookup::lookup_addr;
+
 use crate::{first_usable_host, last_usable_host, parse_cidr, usable_host_count, CidrParseError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +214,65 @@ impl Probe for TcpConnectProbe {
             hostname: None,
             latency_ms: best_latency_ms,
             open_ports,
+            observed_at: SystemTime::now(),
+        }
+    }
+}
+
+pub trait ReverseLookup {
+    fn lookup(&self, ip: Ipv4Addr) -> Option<String>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemReverseLookup;
+
+impl ReverseLookup for SystemReverseLookup {
+    fn lookup(&self, ip: Ipv4Addr) -> Option<String> {
+        let addr = std::net::IpAddr::V4(ip);
+        lookup_addr(&addr)
+            .ok()
+            .filter(|name| !name.trim().is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReverseDnsProbe<L: ReverseLookup = SystemReverseLookup> {
+    resolver: L,
+}
+
+impl ReverseDnsProbe<SystemReverseLookup> {
+    pub fn new() -> Self {
+        Self {
+            resolver: SystemReverseLookup,
+        }
+    }
+}
+
+impl<L: ReverseLookup> ReverseDnsProbe<L> {
+    pub fn with_resolver(resolver: L) -> Self {
+        Self { resolver }
+    }
+}
+
+impl<L: ReverseLookup> Probe for ReverseDnsProbe<L> {
+    fn name(&self) -> &'static str {
+        "reverse_dns"
+    }
+
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
+        let hostname = self.resolver.lookup(ip);
+
+        ProbeResult {
+            ip,
+            status: if hostname.is_some() {
+                DiscoveryStatus::Up
+            } else {
+                DiscoveryStatus::Unknown
+            },
+            source: DiscoverySource::ReverseDns,
+            hostname,
+            latency_ms: None,
+            open_ports: Vec::new(),
             observed_at: SystemTime::now(),
         }
     }
