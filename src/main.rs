@@ -7,7 +7,7 @@ use opencircuit::{
     subnet_mask, total_address_count, usable_host_count, usable_host_range, wildcard_mask,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -107,6 +107,26 @@ fn run(args: &[String]) -> Result<String, String> {
                 is_link_local_ipv4(ip),
                 is_loopback_ipv4(ip),
                 is_multicast_ipv4(ip)
+            ))
+        }
+        "classify-cidr" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let (ip, prefix) =
+                parse_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let normalized =
+                parse_and_normalize_cidr(&args[2]).map_err(|err| format!("Invalid CIDR: {err}"))?;
+            let (network, broadcast) =
+                network_bounds(ip, prefix).map_err(|err| format!("Invalid CIDR: {err}"))?;
+
+            Ok(format!(
+                "cidr={normalized}\nnetwork={network}\nbroadcast={broadcast}\nprivate={}\nlink_local={}\nloopback={}\nmulticast={}",
+                is_private_ipv4(network),
+                is_link_local_ipv4(network),
+                is_loopback_ipv4(network),
+                is_multicast_ipv4(network)
             ))
         }
         "summary" => {
