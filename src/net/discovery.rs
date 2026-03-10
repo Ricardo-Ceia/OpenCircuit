@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -275,5 +276,88 @@ impl<L: ReverseLookup> Probe for ReverseDnsProbe<L> {
             open_ports: Vec::new(),
             observed_at: SystemTime::now(),
         }
+    }
+}
+
+pub fn aggregate_probe_results(results: &[ProbeResult]) -> Vec<DeviceRecord> {
+    let mut grouped: BTreeMap<Ipv4Addr, Vec<&ProbeResult>> = BTreeMap::new();
+    for result in results {
+        grouped.entry(result.ip).or_default().push(result);
+    }
+
+    let mut records = Vec::with_capacity(grouped.len());
+
+    for (ip, group) in grouped {
+        let mut status = DiscoveryStatus::Down;
+        let mut hostname: Option<String> = None;
+        let mut latency_ms: Option<u32> = None;
+        let mut open_ports: Vec<u16> = Vec::new();
+        let mut sources: Vec<DiscoverySource> = Vec::new();
+        let mut first_seen_at = group[0].observed_at;
+        let mut last_seen_at = group[0].observed_at;
+
+        for result in group {
+            status = merge_status(&status, &result.status);
+
+            if hostname.is_none() {
+                if let Some(name) = result.hostname.as_ref().filter(|n| !n.trim().is_empty()) {
+                    hostname = Some(name.clone());
+                }
+            }
+
+            if let Some(ms) = result.latency_ms {
+                latency_ms = Some(match latency_ms {
+                    Some(current) => current.min(ms),
+                    None => ms,
+                });
+            }
+
+            open_ports.extend(&result.open_ports);
+
+            if !sources.contains(&result.source) {
+                sources.push(result.source.clone());
+            }
+
+            if result.observed_at < first_seen_at {
+                first_seen_at = result.observed_at;
+            }
+            if result.observed_at > last_seen_at {
+                last_seen_at = result.observed_at;
+            }
+        }
+
+        open_ports.sort_unstable();
+        open_ports.dedup();
+        sources.sort_by_key(source_rank);
+
+        records.push(DeviceRecord {
+            ip,
+            status,
+            hostname,
+            latency_ms,
+            open_ports,
+            sources,
+            first_seen_at,
+            last_seen_at,
+        });
+    }
+
+    records
+}
+
+fn merge_status(current: &DiscoveryStatus, next: &DiscoveryStatus) -> DiscoveryStatus {
+    use DiscoveryStatus::{Down, Unknown, Up};
+    match (current, next) {
+        (Up, _) | (_, Up) => Up,
+        (Unknown, _) | (_, Unknown) => Unknown,
+        _ => Down,
+    }
+}
+
+fn source_rank(source: &DiscoverySource) -> u8 {
+    match source {
+        DiscoverySource::TcpConnect => 0,
+        DiscoverySource::ReverseDns => 1,
+        DiscoverySource::Aggregated => 2,
     }
 }
