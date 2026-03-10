@@ -1,17 +1,69 @@
-   0.025138918s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: stale: changed "/home/ricardo/OpenCircuit/src/main.rs"
-   0.025399263s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:           (vs) "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-465272b127a7e171/dep-bin-opencircuit"
-   0.025415184s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1773078570, nanos: 502975623 } < FileTime { seconds: 1773152343, nanos: 602681091 }
-   0.026141986s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: false }/TargetInner { name: "opencircuit", doc: true, ..: with_path("/home/ricardo/OpenCircuit/src/main.rs", Edition2024) }
-   0.026248579s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-465272b127a7e171/dep-bin-opencircuit", reference_mtime: FileTime { seconds: 1773078570, nanos: 502975623 }, stale: "/home/ricardo/OpenCircuit/src/main.rs", stale_mtime: FileTime { seconds: 1773152343, nanos: 602681091 } }))
-   0.026997163s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: stale: changed "/home/ricardo/OpenCircuit/src/main.rs"
-   0.027060944s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:           (vs) "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-9c1673577abf8c57/dep-test-bin-opencircuit"
-   0.027071665s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1773078570, nanos: 498975623 } < FileTime { seconds: 1773152343, nanos: 602681091 }
-   0.028758824s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { name: "opencircuit", doc: true, ..: with_path("/home/ricardo/OpenCircuit/src/main.rs", Edition2024) }
-   0.028857502s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-9c1673577abf8c57/dep-test-bin-opencircuit", reference_mtime: FileTime { seconds: 1773078570, nanos: 498975623 }, stale: "/home/ricardo/OpenCircuit/src/main.rs", stale_mtime: FileTime { seconds: 1773152343, nanos: 602681091 } }))
-   0.031214184s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint: stale: changed "/home/ricardo/OpenCircuit/tests/cli_test.rs"
-   0.031263788s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint:           (vs) "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-c5996010e146f35e/dep-test-integration-test-cli_test"
-   0.031271333s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1773078570, nanos: 494975622 } < FileTime { seconds: 1773080643, nanos: 798528500 }
-   0.032150164s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "cli_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/cli_test.rs", Edition2024) }
-   0.032241358s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-c5996010e146f35e/dep-test-integration-test-cli_test", reference_mtime: FileTime { seconds: 1773078570, nanos: 494975622 }, stale: "/home/ricardo/OpenCircuit/tests/cli_test.rs", stale_mtime: FileTime { seconds: 1773080643, nanos: 798528500 } }))
+   0.014828986s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: stale: changed "/home/ricardo/OpenCircuit/src/lib.rs"
+   0.014874503s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:           (vs) "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-99a39f9865d104e6/dep-lib-opencircuit"
+   0.014898438s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1773153222, nanos: 446491423 } < FileTime { seconds: 1773153231, nanos: 130489701 }
+   0.014945007s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("opencircuit", ["lib"], "/home/ricardo/OpenCircuit/src/lib.rs", Edition2024) }
+   0.014977258s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-99a39f9865d104e6/dep-lib-opencircuit", reference_mtime: FileTime { seconds: 1773153222, nanos: 446491423 }, stale: "/home/ricardo/OpenCircuit/src/lib.rs", stale_mtime: FileTime { seconds: 1773153231, nanos: 130489701 } }))
+   0.015183661s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: stale: changed "/home/ricardo/OpenCircuit/src/lib.rs"
+   0.015208809s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:           (vs) "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-c21a402134459fb0/dep-test-lib-opencircuit"
+   0.015214670s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1773153222, nanos: 446491423 } < FileTime { seconds: 1773153231, nanos: 130489701 }
+   0.015244346s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("opencircuit", ["lib"], "/home/ricardo/OpenCircuit/src/lib.rs", Edition2024) }
+   0.015254756s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-c21a402134459fb0/dep-test-lib-opencircuit", reference_mtime: FileTime { seconds: 1773153222, nanos: 446491423 }, stale: "/home/ricardo/OpenCircuit/src/lib.rs", stale_mtime: FileTime { seconds: 1773153231, nanos: 130489701 } }))
+   0.015401395s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: false }/TargetInner { name: "opencircuit", doc: true, ..: with_path("/home/ricardo/OpenCircuit/src/main.rs", Edition2024) }
+   0.015427885s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
+   0.015603960s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { name: "opencircuit", doc: true, ..: with_path("/home/ricardo/OpenCircuit/src/main.rs", Edition2024) }
+   0.015630801s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="opencircuit"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
+   0.015802318s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="address_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "address_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/address_test.rs", Edition2024) }
+   0.015830391s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="address_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
+   0.016004622s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cidr_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "cidr_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/cidr_test.rs", Edition2024) }
+   0.016032415s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cidr_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
+   0.016202990s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "cli_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/cli_test.rs", Edition2024) }
+   0.016230302s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="cli_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
+   0.017056634s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="discovery_models_test"}: cargo::core::compiler::fingerprint: fingerprint error for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "discovery_models_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/discovery_models_test.rs", Edition2024) }
+   0.017098112s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="discovery_models_test"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/ricardo/OpenCircuit/target/debug/.fingerprint/opencircuit-5420c1dddecda06f/test-integration-test-discovery_models_test`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.060621442s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="hosts_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "hosts_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/hosts_test.rs", Edition2024) }
+   0.060696575s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="hosts_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
+   0.061103729s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="math_test"}: cargo::core::compiler::fingerprint: fingerprint dirty for opencircuit v0.1.0 (/home/ricardo/OpenCircuit)/Check { test: true }/TargetInner { kind: "test", name: "math_test", benched: false, ..: with_path("/home/ricardo/OpenCircuit/tests/math_test.rs", Edition2024) }
+   0.061197097s  INFO prepare_target{force=false package_id=opencircuit v0.1.0 (/home/ricardo/OpenCircuit) target="math_test"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "opencircuit" })
     Checking opencircuit v0.1.0 (/home/ricardo/OpenCircuit)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.94s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s

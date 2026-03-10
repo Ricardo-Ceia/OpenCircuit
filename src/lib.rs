@@ -5,6 +5,10 @@ pub use net::address::{
     is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4, next_ipv4, prev_ipv4,
 };
 pub use net::cidr::{format_cidr, normalize_cidr, parse_and_normalize_cidr, parse_cidr};
+pub use net::discovery::{
+    validate_config, DeviceRecord, DiscoveryConfig, DiscoveryConfigError, DiscoverySource,
+    DiscoveryStatus, ProbeResult,
+};
 pub use net::hosts::{
     first_usable_host, is_broadcast_address, is_network_address, is_usable_host, last_usable_host,
     usable_host_count, usable_host_range,
