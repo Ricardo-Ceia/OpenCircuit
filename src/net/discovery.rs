@@ -1,5 +1,6 @@
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::io::ErrorKind;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::time::{Duration, SystemTime};
 
 use crate::{first_usable_host, last_usable_host, parse_cidr, usable_host_count, CidrParseError};
@@ -142,4 +143,76 @@ pub fn expand_target_hosts(
     }
 
     Ok(hosts)
+}
+
+pub trait Probe {
+    fn name(&self) -> &'static str;
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcpConnectProbe {
+    ports: Vec<u16>,
+    timeout: Duration,
+}
+
+impl TcpConnectProbe {
+    pub fn new(ports: Vec<u16>, timeout: Duration) -> Self {
+        Self { ports, timeout }
+    }
+}
+
+impl Probe for TcpConnectProbe {
+    fn name(&self) -> &'static str {
+        "tcp_connect"
+    }
+
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
+        let mut open_ports = Vec::new();
+        let mut best_latency_ms: Option<u32> = None;
+
+        for port in &self.ports {
+            let addr = SocketAddr::V4(SocketAddrV4::new(ip, *port));
+            let started = std::time::Instant::now();
+
+            match TcpStream::connect_timeout(&addr, self.timeout) {
+                Ok(stream) => {
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    let elapsed_ms = started.elapsed().as_millis() as u32;
+                    open_ports.push(*port);
+                    best_latency_ms = match best_latency_ms {
+                        Some(current) if current <= elapsed_ms => Some(current),
+                        _ => Some(elapsed_ms),
+                    };
+                }
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        ErrorKind::ConnectionRefused
+                            | ErrorKind::TimedOut
+                            | ErrorKind::ConnectionAborted
+                            | ErrorKind::ConnectionReset
+                            | ErrorKind::NotConnected
+                            | ErrorKind::AddrNotAvailable
+                            | ErrorKind::NetworkUnreachable
+                            | ErrorKind::HostUnreachable
+                    ) => {}
+                Err(_) => {}
+            }
+        }
+
+        ProbeResult {
+            ip,
+            status: if open_ports.is_empty() {
+                DiscoveryStatus::Down
+            } else {
+                DiscoveryStatus::Up
+            },
+            source: DiscoverySource::TcpConnect,
+            hostname: None,
+            latency_ms: best_latency_ms,
+            open_ports,
+            observed_at: SystemTime::now(),
+        }
+    }
 }

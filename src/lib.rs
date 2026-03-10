@@ -7,7 +7,7 @@ pub use net::address::{
 pub use net::cidr::{format_cidr, normalize_cidr, parse_and_normalize_cidr, parse_cidr};
 pub use net::discovery::{
     expand_target_hosts, validate_config, DeviceRecord, DiscoveryConfig, DiscoveryConfigError,
-    DiscoverySource, DiscoveryStatus, ProbeResult,
+    DiscoverySource, DiscoveryStatus, Probe, ProbeResult, TcpConnectProbe,
 };
 pub use net::hosts::{
     first_usable_host, is_broadcast_address, is_network_address, is_usable_host, last_usable_host,
