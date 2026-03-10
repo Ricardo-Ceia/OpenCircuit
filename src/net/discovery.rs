@@ -153,6 +153,33 @@ pub trait Probe {
     fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult;
 }
 
+pub fn run_discovery(
+    config: &DiscoveryConfig,
+    host_limit: u64,
+) -> Result<Vec<DeviceRecord>, DiscoveryConfigError> {
+    let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
+    let dns_probe = ReverseDnsProbe::new();
+    run_discovery_with_probes(config, host_limit, &[&tcp_probe, &dns_probe])
+}
+
+pub fn run_discovery_with_probes(
+    config: &DiscoveryConfig,
+    host_limit: u64,
+    probes: &[&dyn Probe],
+) -> Result<Vec<DeviceRecord>, DiscoveryConfigError> {
+    validate_config(config)?;
+    let hosts = expand_target_hosts(config, host_limit)?;
+
+    let mut probe_results: Vec<ProbeResult> = Vec::new();
+    for ip in hosts {
+        for probe in probes {
+            probe_results.push(probe.probe_host(ip));
+        }
+    }
+
+    Ok(aggregate_probe_results(&probe_results))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpConnectProbe {
     ports: Vec<u16>,
