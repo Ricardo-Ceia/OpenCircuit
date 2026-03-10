@@ -2,6 +2,8 @@ use std::fmt;
 use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime};
 
+use crate::{first_usable_host, last_usable_host, parse_cidr, usable_host_count, CidrParseError};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoveryStatus {
     Up,
@@ -66,6 +68,8 @@ pub enum DiscoveryConfigError {
     EmptyPorts,
     ZeroConcurrency,
     ZeroTimeout,
+    Cidr(CidrParseError),
+    TooManyHosts { limit: u64, actual: u64 },
 }
 
 impl fmt::Display for DiscoveryConfigError {
@@ -77,6 +81,13 @@ impl fmt::Display for DiscoveryConfigError {
                 write!(f, "discovery config concurrency must be greater than zero")
             }
             Self::ZeroTimeout => write!(f, "discovery config timeout must be greater than zero"),
+            Self::Cidr(err) => write!(f, "invalid CIDR: {err}"),
+            Self::TooManyHosts { limit, actual } => {
+                write!(
+                    f,
+                    "target host count {actual} exceeds allowed limit {limit}"
+                )
+            }
         }
     }
 }
@@ -99,4 +110,36 @@ pub fn validate_config(config: &DiscoveryConfig) -> Result<(), DiscoveryConfigEr
     }
 
     Ok(())
+}
+
+pub fn expand_target_hosts(
+    config: &DiscoveryConfig,
+    host_limit: u64,
+) -> Result<Vec<Ipv4Addr>, DiscoveryConfigError> {
+    let (ip, prefix) = parse_cidr(&config.cidr).map_err(DiscoveryConfigError::Cidr)?;
+    let actual = usable_host_count(prefix).map_err(DiscoveryConfigError::Cidr)?;
+
+    if actual > host_limit {
+        return Err(DiscoveryConfigError::TooManyHosts {
+            limit: host_limit,
+            actual,
+        });
+    }
+
+    if actual == 0 {
+        return Ok(Vec::new());
+    }
+
+    let first = first_usable_host(ip, prefix).map_err(DiscoveryConfigError::Cidr)?;
+    let last = last_usable_host(ip, prefix).map_err(DiscoveryConfigError::Cidr)?;
+    let mut hosts = Vec::with_capacity(actual as usize);
+    let mut current = u32::from(first);
+    let end = u32::from(last);
+
+    while current <= end {
+        hosts.push(Ipv4Addr::from(current));
+        current = current.saturating_add(1);
+    }
+
+    Ok(hosts)
 }

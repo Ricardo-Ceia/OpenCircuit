@@ -2,8 +2,8 @@ use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime};
 
 use opencircuit::{
-    validate_config, DeviceRecord, DiscoveryConfig, DiscoveryConfigError, DiscoverySource,
-    DiscoveryStatus, ProbeResult,
+    expand_target_hosts, validate_config, DeviceRecord, DiscoveryConfig, DiscoveryConfigError,
+    DiscoverySource, DiscoveryStatus, ProbeResult,
 };
 
 #[test]
@@ -111,4 +111,65 @@ fn device_record_model_holds_expected_fields() {
     );
     assert_eq!(record.first_seen_at, now);
     assert_eq!(record.last_seen_at, now);
+}
+
+#[test]
+fn expands_hosts_for_common_subnet() {
+    let config = DiscoveryConfig {
+        cidr: String::from("192.168.1.0/30"),
+        ..DiscoveryConfig::default()
+    };
+
+    let hosts = expand_target_hosts(&config, 10).expect("expected host expansion to succeed");
+    assert_eq!(
+        hosts,
+        vec![Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(192, 168, 1, 2)]
+    );
+}
+
+#[test]
+fn expands_hosts_for_point_to_point_subnet() {
+    let config = DiscoveryConfig {
+        cidr: String::from("10.0.0.0/31"),
+        ..DiscoveryConfig::default()
+    };
+
+    let hosts = expand_target_hosts(&config, 10).expect("expected host expansion to succeed");
+    assert_eq!(
+        hosts,
+        vec![Ipv4Addr::new(10, 0, 0, 0), Ipv4Addr::new(10, 0, 0, 1)]
+    );
+}
+
+#[test]
+fn rejects_target_when_host_limit_is_exceeded() {
+    let config = DiscoveryConfig {
+        cidr: String::from("192.168.1.0/24"),
+        ..DiscoveryConfig::default()
+    };
+
+    let result = expand_target_hosts(&config, 100);
+    assert_eq!(
+        result,
+        Err(DiscoveryConfigError::TooManyHosts {
+            limit: 100,
+            actual: 254
+        })
+    );
+}
+
+#[test]
+fn rejects_invalid_cidr_for_host_expansion() {
+    let config = DiscoveryConfig {
+        cidr: String::from("not-a-cidr"),
+        ..DiscoveryConfig::default()
+    };
+
+    let result = expand_target_hosts(&config, 10);
+    assert_eq!(
+        result,
+        Err(DiscoveryConfigError::Cidr(
+            opencircuit::CidrParseError::MissingSlash
+        ))
+    );
 }
