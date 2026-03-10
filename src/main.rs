@@ -3,11 +3,11 @@ use std::net::Ipv4Addr;
 
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
-    is_usable_host, network_bounds, parse_and_normalize_cidr, parse_cidr, subnet_mask,
-    total_address_count, usable_host_count, usable_host_range, wildcard_mask,
+    is_usable_host, network_bounds, next_ipv4, parse_and_normalize_cidr, parse_cidr, prev_ipv4,
+    subnet_mask, total_address_count, usable_host_count, usable_host_range, wildcard_mask,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -67,6 +67,30 @@ fn run(args: &[String]) -> Result<String, String> {
                 .map_err(|err| format!("Invalid CIDR: {err}"))?;
 
             Ok(usable.to_string())
+        }
+        "next" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let ip = args[2]
+                .parse::<Ipv4Addr>()
+                .map_err(|_| String::from("Invalid IPv4 address"))?;
+            let next = next_ipv4(ip).ok_or_else(|| String::from("No next IPv4 address"))?;
+
+            Ok(next.to_string())
+        }
+        "prev" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let ip = args[2]
+                .parse::<Ipv4Addr>()
+                .map_err(|_| String::from("Invalid IPv4 address"))?;
+            let prev = prev_ipv4(ip).ok_or_else(|| String::from("No previous IPv4 address"))?;
+
+            Ok(prev.to_string())
         }
         "classify" => {
             if args.len() != 3 {

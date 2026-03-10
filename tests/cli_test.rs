@@ -34,7 +34,7 @@ fn normalize_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
 }
 
 #[test]
@@ -153,6 +153,71 @@ fn usable_command_fails_for_invalid_ip_argument() {
 }
 
 #[test]
+fn next_command_outputs_next_ipv4() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["next", "192.168.1.42"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "192.168.1.43\n");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn next_command_fails_on_upper_boundary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["next", "255.255.255.255"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No next IPv4 address"));
+}
+
+#[test]
+fn prev_command_outputs_previous_ipv4() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["prev", "192.168.1.42"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "192.168.1.41\n");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[test]
+fn prev_command_fails_on_lower_boundary() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["prev", "0.0.0.0"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No previous IPv4 address"));
+}
+
+#[test]
+fn next_prev_commands_fail_for_invalid_ip() {
+    let next = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["next", "nope"])
+        .output()
+        .expect("failed to run opencircuit binary");
+    let prev = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["prev", "nope"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!next.status.success());
+    assert!(String::from_utf8_lossy(&next.stderr).contains("Invalid IPv4 address"));
+    assert!(!prev.status.success());
+    assert!(String::from_utf8_lossy(&prev.stderr).contains("Invalid IPv4 address"));
+}
+
+#[test]
 fn classify_command_outputs_expected_flags() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["classify", "192.168.1.10"])
@@ -260,7 +325,7 @@ fn masks_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
 }
 
 #[test]
@@ -300,7 +365,7 @@ fn range_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
 }
 
 #[test]
@@ -349,7 +414,7 @@ fn overlap_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
 }
 
 #[test]
@@ -430,5 +495,5 @@ fn relation_command_fails_with_missing_argument() {
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
+        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>"));
 }
