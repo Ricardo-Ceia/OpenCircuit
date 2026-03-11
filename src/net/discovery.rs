@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -22,6 +23,7 @@ pub enum DiscoveryStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoverySource {
     Ping,
+    Neighbor,
     TcpConnect,
     Mdns,
     Netbios,
@@ -168,6 +170,7 @@ pub fn run_discovery(
     host_limit: u64,
 ) -> Result<Vec<DeviceRecord>, DiscoveryConfigError> {
     let ping_probe = PingProbe::new(config.timeout);
+    let neighbor_probe = NeighborProbe::new();
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
     let mdns_probe = MdnsProbe::new();
     let netbios_probe = NetbiosProbe::new();
@@ -177,6 +180,7 @@ pub fn run_discovery(
         host_limit,
         &[
             &ping_probe,
+            &neighbor_probe,
             &tcp_probe,
             &mdns_probe,
             &netbios_probe,
@@ -194,6 +198,7 @@ where
     F: FnMut(usize, usize, Ipv4Addr),
 {
     let ping_probe = PingProbe::new(config.timeout);
+    let neighbor_probe = NeighborProbe::new();
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
     let mdns_probe = MdnsProbe::new();
     let netbios_probe = NetbiosProbe::new();
@@ -203,6 +208,7 @@ where
         host_limit,
         &[
             &ping_probe,
+            &neighbor_probe,
             &tcp_probe,
             &mdns_probe,
             &netbios_probe,
@@ -422,6 +428,102 @@ impl<E: PingExecutor + Sync> Probe for PingProbe<E> {
                 DiscoveryStatus::Unknown
             },
             source: DiscoverySource::Ping,
+            hostname: None,
+            latency_ms: None,
+            open_ports: Vec::new(),
+            observed_at: SystemTime::now(),
+        }
+    }
+}
+
+pub trait NeighborLookup {
+    fn neighbors(&self) -> HashSet<Ipv4Addr>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemNeighborLookup;
+
+impl NeighborLookup for SystemNeighborLookup {
+    fn neighbors(&self) -> HashSet<Ipv4Addr> {
+        let output = Command::new("ip")
+            .args(["neigh"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
+
+        let mut neighbors = HashSet::new();
+        let Ok(output) = output else {
+            return neighbors;
+        };
+        if !output.status.success() {
+            return neighbors;
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let mut parts = line.split_whitespace();
+            let Some(ip_raw) = parts.next() else {
+                continue;
+            };
+            let Ok(ip) = ip_raw.parse::<Ipv4Addr>() else {
+                continue;
+            };
+
+            let upper = line.to_ascii_uppercase();
+            if upper.contains(" INCOMPLETE") || upper.contains(" FAILED") {
+                continue;
+            }
+
+            neighbors.insert(ip);
+        }
+
+        neighbors
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeighborProbe<L: NeighborLookup = SystemNeighborLookup> {
+    neighbors: HashSet<Ipv4Addr>,
+    _lookup: L,
+}
+
+impl NeighborProbe<SystemNeighborLookup> {
+    pub fn new() -> Self {
+        let lookup = SystemNeighborLookup;
+        let neighbors = lookup.neighbors();
+        Self {
+            neighbors,
+            _lookup: lookup,
+        }
+    }
+}
+
+impl<L: NeighborLookup> NeighborProbe<L> {
+    pub fn with_lookup(lookup: L) -> Self {
+        let neighbors = lookup.neighbors();
+        Self {
+            neighbors,
+            _lookup: lookup,
+        }
+    }
+}
+
+impl<L: NeighborLookup + Sync> Probe for NeighborProbe<L> {
+    fn name(&self) -> &'static str {
+        "neighbor"
+    }
+
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
+        let present = self.neighbors.contains(&ip);
+
+        ProbeResult {
+            ip,
+            status: if present {
+                DiscoveryStatus::Up
+            } else {
+                DiscoveryStatus::Unknown
+            },
+            source: DiscoverySource::Neighbor,
             hostname: None,
             latency_ms: None,
             open_ports: Vec::new(),
@@ -732,11 +834,12 @@ fn merge_status(current: &DiscoveryStatus, next: &DiscoveryStatus) -> DiscoveryS
 fn source_rank(source: &DiscoverySource) -> u8 {
     match source {
         DiscoverySource::Ping => 0,
-        DiscoverySource::TcpConnect => 1,
-        DiscoverySource::Mdns => 2,
-        DiscoverySource::Netbios => 3,
-        DiscoverySource::ReverseDns => 4,
-        DiscoverySource::Aggregated => 5,
+        DiscoverySource::Neighbor => 1,
+        DiscoverySource::TcpConnect => 2,
+        DiscoverySource::Mdns => 3,
+        DiscoverySource::Netbios => 4,
+        DiscoverySource::ReverseDns => 5,
+        DiscoverySource::Aggregated => 6,
     }
 }
 
@@ -746,7 +849,8 @@ fn hostname_source_rank(source: &DiscoverySource) -> u8 {
         DiscoverySource::Netbios => 1,
         DiscoverySource::ReverseDns => 2,
         DiscoverySource::TcpConnect => 3,
-        DiscoverySource::Ping => 4,
-        DiscoverySource::Aggregated => 5,
+        DiscoverySource::Neighbor => 4,
+        DiscoverySource::Ping => 5,
+        DiscoverySource::Aggregated => 6,
     }
 }

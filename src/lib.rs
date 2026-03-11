@@ -9,9 +9,10 @@ pub use net::discovery::{
     aggregate_probe_results, expand_target_hosts, run_discovery, run_discovery_with_probes,
     run_discovery_with_probes_and_progress, run_discovery_with_progress, validate_config,
     DeviceRecord, DiscoveryConfig, DiscoveryConfigError, DiscoverySource, DiscoveryStatus,
-    MdnsLookup, MdnsProbe, NetbiosLookup, NetbiosProbe, PingExecutor, PingProbe, Probe,
-    ProbeResult, ReverseDnsProbe, ReverseLookup, SystemMdnsLookup, SystemNetbiosLookup,
-    SystemPingExecutor, SystemReverseLookup, TcpConnectProbe,
+    MdnsLookup, MdnsProbe, NeighborLookup, NeighborProbe, NetbiosLookup, NetbiosProbe,
+    PingExecutor, PingProbe, Probe, ProbeResult, ReverseDnsProbe, ReverseLookup, SystemMdnsLookup,
+    SystemNeighborLookup, SystemNetbiosLookup, SystemPingExecutor, SystemReverseLookup,
+    TcpConnectProbe,
 };
 pub use net::hosts::{
     first_usable_host, is_broadcast_address, is_network_address, is_usable_host, last_usable_host,

@@ -406,6 +406,7 @@ fn run(args: &[String]) -> Result<String, String> {
                     .hostname_source
                     .map(|source| match source {
                         opencircuit::DiscoverySource::Ping => "ping",
+                        opencircuit::DiscoverySource::Neighbor => "neighbor",
                         opencircuit::DiscoverySource::TcpConnect => "tcp_connect",
                         opencircuit::DiscoverySource::Mdns => "mdns",
                         opencircuit::DiscoverySource::Netbios => "netbios",
