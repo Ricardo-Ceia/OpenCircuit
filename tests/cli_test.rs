@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn normalize_command_outputs_network_cidr() {
@@ -655,6 +656,42 @@ fn scan_command_accepts_explicit_fast_profile() {
 }
 
 #[test]
+fn scan_command_shows_recently_seen_devices_from_state_cache() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock must be after unix epoch")
+        .as_nanos();
+    let state_file = std::env::temp_dir().join(format!("opencircuit-state-{unique}.tsv"));
+    let state_file_raw = state_file.to_string_lossy().to_string();
+
+    let first = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--state-file", &state_file_raw])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(first.status.success());
+    assert!(String::from_utf8_lossy(&first.stdout).contains("presence=online"));
+
+    let second = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args([
+            "scan",
+            "127.0.0.0/30",
+            "--no-dns",
+            "--state-file",
+            &state_file_raw,
+            "--recent-minutes",
+            "60",
+        ])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(second.status.success());
+    assert!(String::from_utf8_lossy(&second.stdout).contains("presence=recently_seen"));
+
+    let _ = std::fs::remove_file(state_file);
+}
+
+#[test]
 fn scan_command_rejects_multiple_profiles() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["scan", "127.0.0.0/30", "--fast", "--deep"])
@@ -665,6 +702,28 @@ fn scan_command_rejects_multiple_profiles() {
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("Only one scan profile can be selected")
     );
+}
+
+#[test]
+fn scan_command_rejects_invalid_recent_minutes_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--recent-minutes", "bad"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Invalid --recent-minutes value"));
+}
+
+#[test]
+fn scan_command_rejects_empty_state_file_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--state-file", ""])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--state-file cannot be empty"));
 }
 
 #[test]

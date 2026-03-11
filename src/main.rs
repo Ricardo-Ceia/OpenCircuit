@@ -1,6 +1,8 @@
 use std::env;
+use std::fs;
+use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
@@ -9,7 +11,37 @@ use opencircuit::{
     total_address_count, usable_host_count, usable_host_range, wildcard_mask, TcpConnectProbe,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--deep|--balanced|--fast] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>]";
+const DEFAULT_RECENT_MINUTES: u64 = 24 * 60;
+const DEFAULT_STATE_FILE: &str = ".opencircuit-seen-cache.tsv";
+
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--deep|--balanced|--fast] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>] [--recent-minutes <n>] [--state-file <path>]";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SeenRecord {
+    ip: Ipv4Addr,
+    first_seen_unix_s: u64,
+    last_seen_unix_s: u64,
+    hostname: Option<String>,
+    hostname_source: Option<opencircuit::DiscoverySource>,
+    open_ports: Vec<u16>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    Online,
+    RecentlySeen,
+    Offline,
+}
+
+impl Presence {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Online => "online",
+            Self::RecentlySeen => "recently_seen",
+            Self::Offline => "offline",
+        }
+    }
+}
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -253,6 +285,8 @@ fn run(args: &[String]) -> Result<String, String> {
             let mut override_ports: Option<Vec<u16>> = None;
             let mut override_timeout_ms: Option<u64> = None;
             let mut override_concurrency: Option<usize> = None;
+            let mut recent_minutes = DEFAULT_RECENT_MINUTES;
+            let mut state_file = String::from(DEFAULT_STATE_FILE);
             let mut i = 3usize;
             while i < args.len() {
                 match args[i].as_str() {
@@ -321,6 +355,25 @@ fn run(args: &[String]) -> Result<String, String> {
                         override_concurrency = Some(concurrency);
                         i += 2;
                     }
+                    "--recent-minutes" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --recent-minutes"));
+                        }
+                        recent_minutes = args[i + 1]
+                            .parse::<u64>()
+                            .map_err(|_| String::from("Invalid --recent-minutes value"))?;
+                        i += 2;
+                    }
+                    "--state-file" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --state-file"));
+                        }
+                        state_file = args[i + 1].clone();
+                        if state_file.trim().is_empty() {
+                            return Err(String::from("--state-file cannot be empty"));
+                        }
+                        i += 2;
+                    }
                     _ => return Err(String::from(USAGE)),
                 }
             }
@@ -376,26 +429,63 @@ fn run(args: &[String]) -> Result<String, String> {
             };
             let elapsed_ms = started.elapsed().as_millis();
 
-            let displayed_records: Vec<opencircuit::DeviceRecord> = if show_all {
-                records.clone()
-            } else {
-                records
-                    .iter()
-                    .filter(|record| record.status == opencircuit::DiscoveryStatus::Up)
-                    .cloned()
-                    .collect()
-            };
+            let now_unix_s = unix_now_secs();
+            let mut seen_records =
+                load_seen_records(&state_file).map_err(|err| format!("Scan failed: {err}"))?;
+            update_seen_records(&mut seen_records, &records, now_unix_s);
+            if let Err(err) = save_seen_records(&state_file, &seen_records) {
+                eprintln!("[scan] warning: could not persist state cache: {err}");
+            }
+
+            let recent_window_s = recent_minutes.saturating_mul(60);
+            let mut displayed_records: Vec<(opencircuit::DeviceRecord, Presence)> = Vec::new();
+
+            for record in &records {
+                let cached = seen_records.iter().find(|entry| entry.ip == record.ip);
+
+                let presence = if record.status == opencircuit::DiscoveryStatus::Up {
+                    Presence::Online
+                } else if recent_window_s > 0
+                    && cached
+                        .map(|entry| {
+                            now_unix_s.saturating_sub(entry.last_seen_unix_s) <= recent_window_s
+                        })
+                        .unwrap_or(false)
+                {
+                    Presence::RecentlySeen
+                } else {
+                    Presence::Offline
+                };
+
+                let mut merged = record.clone();
+                if let Some(cached) = cached {
+                    if merged.hostname.is_none() {
+                        merged.hostname = cached.hostname.clone();
+                    }
+                    if merged.hostname_source.is_none() {
+                        merged.hostname_source = cached.hostname_source.clone();
+                    }
+                    if merged.open_ports.is_empty() {
+                        merged.open_ports = cached.open_ports.clone();
+                    }
+                }
+
+                if show_all || presence != Presence::Offline {
+                    displayed_records.push((merged, presence));
+                }
+            }
 
             let mut lines = Vec::with_capacity(displayed_records.len() + 1);
             lines.push(format!(
-                "scanned_hosts={} records={} shown={} elapsed_ms={}",
+                "scanned_hosts={} records={} shown={} elapsed_ms={} recent_minutes={}",
                 records.len(),
                 records.len(),
                 displayed_records.len(),
-                elapsed_ms
+                elapsed_ms,
+                recent_minutes
             ));
 
-            for record in displayed_records {
+            for (record, presence) in displayed_records {
                 let status = match record.status {
                     opencircuit::DiscoveryStatus::Up => "up",
                     opencircuit::DiscoveryStatus::Down => "down",
@@ -426,8 +516,13 @@ fn run(args: &[String]) -> Result<String, String> {
                 };
 
                 lines.push(format!(
-                    "ip={} status={} hostname={} hostname_source={} open_ports={}",
-                    record.ip, status, hostname, hostname_source, ports
+                    "ip={} status={} presence={} hostname={} hostname_source={} open_ports={}",
+                    record.ip,
+                    status,
+                    presence.as_str(),
+                    hostname,
+                    hostname_source,
+                    ports
                 ));
             }
 
@@ -462,6 +557,182 @@ fn parse_ports_csv(raw: &str) -> Result<Vec<u16>, String> {
     }
 
     Ok(ports)
+}
+
+fn unix_now_secs() -> u64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(_) => 0,
+    }
+}
+
+fn discovery_source_to_tag(source: &opencircuit::DiscoverySource) -> &'static str {
+    match source {
+        opencircuit::DiscoverySource::Ping => "ping",
+        opencircuit::DiscoverySource::Neighbor => "neighbor",
+        opencircuit::DiscoverySource::TcpConnect => "tcp_connect",
+        opencircuit::DiscoverySource::Mdns => "mdns",
+        opencircuit::DiscoverySource::Netbios => "netbios",
+        opencircuit::DiscoverySource::ReverseDns => "reverse_dns",
+        opencircuit::DiscoverySource::Aggregated => "aggregated",
+    }
+}
+
+fn tag_to_discovery_source(tag: &str) -> Option<opencircuit::DiscoverySource> {
+    match tag {
+        "ping" => Some(opencircuit::DiscoverySource::Ping),
+        "neighbor" => Some(opencircuit::DiscoverySource::Neighbor),
+        "tcp_connect" => Some(opencircuit::DiscoverySource::TcpConnect),
+        "mdns" => Some(opencircuit::DiscoverySource::Mdns),
+        "netbios" => Some(opencircuit::DiscoverySource::Netbios),
+        "reverse_dns" => Some(opencircuit::DiscoverySource::ReverseDns),
+        "aggregated" => Some(opencircuit::DiscoverySource::Aggregated),
+        _ => None,
+    }
+}
+
+fn parse_ports_for_cache(raw: &str) -> Vec<u16> {
+    raw.split(',')
+        .filter_map(|part| part.trim().parse::<u16>().ok())
+        .filter(|port| *port > 0)
+        .collect()
+}
+
+fn load_seen_records(path: &str) -> Result<Vec<SeenRecord>, String> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(format!("could not read state file '{path}': {err}"));
+        }
+    };
+
+    let mut records = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split('\t').collect();
+        if parts.len() < 6 {
+            continue;
+        }
+
+        let Ok(ip) = parts[0].parse::<Ipv4Addr>() else {
+            continue;
+        };
+        let Ok(first_seen_unix_s) = parts[1].parse::<u64>() else {
+            continue;
+        };
+        let Ok(last_seen_unix_s) = parts[2].parse::<u64>() else {
+            continue;
+        };
+
+        let hostname = if parts[3] == "-" || parts[3].is_empty() {
+            None
+        } else {
+            Some(parts[3].to_string())
+        };
+
+        let hostname_source = if parts[4] == "-" || parts[4].is_empty() {
+            None
+        } else {
+            tag_to_discovery_source(parts[4])
+        };
+
+        let open_ports = if parts[5].is_empty() || parts[5] == "-" {
+            Vec::new()
+        } else {
+            parse_ports_for_cache(parts[5])
+        };
+
+        records.push(SeenRecord {
+            ip,
+            first_seen_unix_s,
+            last_seen_unix_s,
+            hostname,
+            hostname_source,
+            open_ports,
+        });
+    }
+
+    Ok(records)
+}
+
+fn save_seen_records(path: &str, records: &[SeenRecord]) -> Result<(), String> {
+    let mut lines = Vec::with_capacity(records.len());
+
+    for record in records {
+        let hostname = record.hostname.clone().unwrap_or_else(|| String::from("-"));
+        let hostname_source = record
+            .hostname_source
+            .as_ref()
+            .map(discovery_source_to_tag)
+            .unwrap_or("-");
+        let ports = if record.open_ports.is_empty() {
+            String::from("-")
+        } else {
+            record
+                .open_ports
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<String>>()
+                .join(",")
+        };
+
+        lines.push(format!(
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            record.ip,
+            record.first_seen_unix_s,
+            record.last_seen_unix_s,
+            hostname,
+            hostname_source,
+            ports
+        ));
+    }
+
+    fs::write(path, lines.join("\n"))
+        .map_err(|err| format!("could not write state file '{path}': {err}"))
+}
+
+fn update_seen_records(
+    seen_records: &mut Vec<SeenRecord>,
+    records: &[opencircuit::DeviceRecord],
+    now_unix_s: u64,
+) {
+    for record in records {
+        if record.status != opencircuit::DiscoveryStatus::Up {
+            continue;
+        }
+
+        if let Some(existing) = seen_records.iter_mut().find(|entry| entry.ip == record.ip) {
+            existing.last_seen_unix_s = now_unix_s;
+
+            if let Some(hostname) = record
+                .hostname
+                .as_ref()
+                .filter(|name| !name.trim().is_empty())
+            {
+                existing.hostname = Some(hostname.clone());
+            }
+            if record.hostname_source.is_some() {
+                existing.hostname_source = record.hostname_source.clone();
+            }
+            if !record.open_ports.is_empty() {
+                existing.open_ports = record.open_ports.clone();
+            }
+        } else {
+            seen_records.push(SeenRecord {
+                ip: record.ip,
+                first_seen_unix_s: now_unix_s,
+                last_seen_unix_s: now_unix_s,
+                hostname: record.hostname.clone(),
+                hostname_source: record.hostname_source.clone(),
+                open_ports: record.open_ports.clone(),
+            });
+        }
+    }
 }
 
 fn main() {
