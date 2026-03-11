@@ -6,8 +6,9 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
+use std::sync::Mutex;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use dns_lookup::lookup_addr;
 
@@ -481,29 +482,38 @@ impl NeighborLookup for SystemNeighborLookup {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NeighborProbe<L: NeighborLookup = SystemNeighborLookup> {
+    lookup: L,
+    cache: Mutex<NeighborCache>,
+    refresh_interval: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NeighborCache {
     neighbors: HashSet<Ipv4Addr>,
-    _lookup: L,
+    refreshed_at: Instant,
 }
 
 impl NeighborProbe<SystemNeighborLookup> {
     pub fn new() -> Self {
-        let lookup = SystemNeighborLookup;
-        let neighbors = lookup.neighbors();
-        Self {
-            neighbors,
-            _lookup: lookup,
-        }
+        Self::with_lookup_and_refresh_interval(SystemNeighborLookup, Duration::from_secs(2))
     }
 }
 
 impl<L: NeighborLookup> NeighborProbe<L> {
     pub fn with_lookup(lookup: L) -> Self {
+        Self::with_lookup_and_refresh_interval(lookup, Duration::from_secs(2))
+    }
+
+    pub fn with_lookup_and_refresh_interval(lookup: L, refresh_interval: Duration) -> Self {
         let neighbors = lookup.neighbors();
         Self {
-            neighbors,
-            _lookup: lookup,
+            lookup,
+            cache: Mutex::new(NeighborCache {
+                neighbors,
+                refreshed_at: Instant::now(),
+            }),
+            refresh_interval,
         }
     }
 }
@@ -514,7 +524,17 @@ impl<L: NeighborLookup + Sync> Probe for NeighborProbe<L> {
     }
 
     fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
-        let present = self.neighbors.contains(&ip);
+        let present = {
+            let mut cache = self
+                .cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if cache.refreshed_at.elapsed() >= self.refresh_interval {
+                cache.neighbors = self.lookup.neighbors();
+                cache.refreshed_at = Instant::now();
+            }
+            cache.neighbors.contains(&ip)
+        };
 
         ProbeResult {
             ip,

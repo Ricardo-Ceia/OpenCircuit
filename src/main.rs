@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use opencircuit::{
@@ -24,6 +26,8 @@ struct SeenRecord {
     hostname: Option<String>,
     hostname_source: Option<opencircuit::DiscoverySource>,
     open_ports: Vec<u16>,
+    mac: Option<String>,
+    device_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -430,15 +434,22 @@ fn run(args: &[String]) -> Result<String, String> {
             let elapsed_ms = started.elapsed().as_millis();
 
             let now_unix_s = unix_now_secs();
+            let neighbor_macs = load_neighbor_mac_map();
             let mut seen_records =
                 load_seen_records(&state_file).map_err(|err| format!("Scan failed: {err}"))?;
-            update_seen_records(&mut seen_records, &records, now_unix_s);
+            update_seen_records(&mut seen_records, &records, now_unix_s, &neighbor_macs);
             if let Err(err) = save_seen_records(&state_file, &seen_records) {
                 eprintln!("[scan] warning: could not persist state cache: {err}");
             }
 
             let recent_window_s = recent_minutes.saturating_mul(60);
-            let mut displayed_records: Vec<(opencircuit::DeviceRecord, Presence)> = Vec::new();
+            let mut displayed_records: Vec<(
+                opencircuit::DeviceRecord,
+                Presence,
+                Option<String>,
+                Option<String>,
+                String,
+            )> = Vec::new();
 
             for record in &records {
                 let cached = seen_records.iter().find(|entry| entry.ip == record.ip);
@@ -470,8 +481,21 @@ fn run(args: &[String]) -> Result<String, String> {
                     }
                 }
 
+                let mac = neighbor_macs
+                    .get(&record.ip)
+                    .cloned()
+                    .or_else(|| cached.and_then(|entry| entry.mac.clone()));
+                let device_hint = infer_device_hint(&merged.open_ports)
+                    .or_else(|| cached.and_then(|entry| entry.device_hint.clone()));
+                let display_name = build_display_name(
+                    record.ip,
+                    merged.hostname.as_deref(),
+                    device_hint.as_deref(),
+                    mac.as_deref(),
+                );
+
                 if show_all || presence != Presence::Offline {
-                    displayed_records.push((merged, presence));
+                    displayed_records.push((merged, presence, mac, device_hint, display_name));
                 }
             }
 
@@ -485,7 +509,7 @@ fn run(args: &[String]) -> Result<String, String> {
                 recent_minutes
             ));
 
-            for (record, presence) in displayed_records {
+            for (record, presence, mac, device_hint, display_name) in displayed_records {
                 let status = match record.status {
                     opencircuit::DiscoveryStatus::Up => "up",
                     opencircuit::DiscoveryStatus::Down => "down",
@@ -514,14 +538,19 @@ fn run(args: &[String]) -> Result<String, String> {
                         .collect::<Vec<String>>()
                         .join(",")
                 };
+                let mac_display = mac.unwrap_or_else(|| String::from("-"));
+                let hint_display = device_hint.unwrap_or_else(|| String::from("-"));
 
                 lines.push(format!(
-                    "ip={} status={} presence={} hostname={} hostname_source={} open_ports={}",
+                    "ip={} status={} presence={} display_name={} hostname={} hostname_source={} mac={} device_hint={} open_ports={}",
                     record.ip,
                     status,
                     presence.as_str(),
+                    display_name,
                     hostname,
                     hostname_source,
+                    mac_display,
+                    hint_display,
                     ports
                 ));
             }
@@ -598,6 +627,119 @@ fn parse_ports_for_cache(raw: &str) -> Vec<u16> {
         .collect()
 }
 
+fn normalize_mac(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let valid = lower.len() == 17
+        && lower.chars().enumerate().all(|(idx, ch)| {
+            if [2, 5, 8, 11, 14].contains(&idx) {
+                ch == ':'
+            } else {
+                ch.is_ascii_hexdigit()
+            }
+        });
+    if valid {
+        Some(lower)
+    } else {
+        None
+    }
+}
+
+fn load_neighbor_mac_map() -> HashMap<Ipv4Addr, String> {
+    let output = Command::new("ip")
+        .args(["neigh"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let mut map = HashMap::new();
+    let Ok(output) = output else {
+        return map;
+    };
+    if !output.status.success() {
+        return map;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let upper = line.to_ascii_uppercase();
+        if upper.contains(" INCOMPLETE") || upper.contains(" FAILED") {
+            continue;
+        }
+
+        let mut parts = line.split_whitespace();
+        let Some(ip_raw) = parts.next() else {
+            continue;
+        };
+        let Ok(ip) = ip_raw.parse::<Ipv4Addr>() else {
+            continue;
+        };
+
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        for idx in 0..tokens.len() {
+            if tokens[idx] == "lladdr" && idx + 1 < tokens.len() {
+                if let Some(mac) = normalize_mac(tokens[idx + 1]) {
+                    map.insert(ip, mac);
+                }
+                break;
+            }
+        }
+    }
+
+    map
+}
+
+fn infer_device_hint(open_ports: &[u16]) -> Option<String> {
+    if open_ports.contains(&62078) {
+        return Some(String::from("apple_mobile_likely"));
+    }
+    if open_ports.contains(&8008) && open_ports.contains(&8009) {
+        return Some(String::from("chromecast_or_tv_likely"));
+    }
+    if open_ports.contains(&445) || open_ports.contains(&139) {
+        return Some(String::from("windows_or_samba_likely"));
+    }
+    None
+}
+
+fn short_mac_suffix(mac: &str) -> String {
+    mac.split(':')
+        .rev()
+        .take(2)
+        .collect::<Vec<&str>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<&str>>()
+        .join("")
+}
+
+fn build_display_name(
+    ip: Ipv4Addr,
+    hostname: Option<&str>,
+    device_hint: Option<&str>,
+    mac: Option<&str>,
+) -> String {
+    if let Some(name) = hostname.map(str::trim).filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+
+    if let Some(hint) = device_hint {
+        if let Some(mac) = mac {
+            return format!("{}-{}", hint, short_mac_suffix(mac));
+        }
+        return hint.to_string();
+    }
+
+    if let Some(mac) = mac {
+        return format!("unknown-{}", short_mac_suffix(mac));
+    }
+
+    format!("unknown-{ip}")
+}
+
 fn load_seen_records(path: &str) -> Result<Vec<SeenRecord>, String> {
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
@@ -647,6 +789,18 @@ fn load_seen_records(path: &str) -> Result<Vec<SeenRecord>, String> {
             parse_ports_for_cache(parts[5])
         };
 
+        let mac = if parts.len() >= 7 && !parts[6].is_empty() && parts[6] != "-" {
+            normalize_mac(parts[6])
+        } else {
+            None
+        };
+
+        let device_hint = if parts.len() >= 8 && !parts[7].is_empty() && parts[7] != "-" {
+            Some(parts[7].to_string())
+        } else {
+            None
+        };
+
         records.push(SeenRecord {
             ip,
             first_seen_unix_s,
@@ -654,6 +808,8 @@ fn load_seen_records(path: &str) -> Result<Vec<SeenRecord>, String> {
             hostname,
             hostname_source,
             open_ports,
+            mac,
+            device_hint,
         });
     }
 
@@ -680,15 +836,22 @@ fn save_seen_records(path: &str, records: &[SeenRecord]) -> Result<(), String> {
                 .collect::<Vec<String>>()
                 .join(",")
         };
+        let mac = record.mac.clone().unwrap_or_else(|| String::from("-"));
+        let device_hint = record
+            .device_hint
+            .clone()
+            .unwrap_or_else(|| String::from("-"));
 
         lines.push(format!(
-            "{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             record.ip,
             record.first_seen_unix_s,
             record.last_seen_unix_s,
             hostname,
             hostname_source,
-            ports
+            ports,
+            mac,
+            device_hint
         ));
     }
 
@@ -700,6 +863,7 @@ fn update_seen_records(
     seen_records: &mut Vec<SeenRecord>,
     records: &[opencircuit::DeviceRecord],
     now_unix_s: u64,
+    neighbor_macs: &HashMap<Ipv4Addr, String>,
 ) {
     for record in records {
         if record.status != opencircuit::DiscoveryStatus::Up {
@@ -722,6 +886,13 @@ fn update_seen_records(
             if !record.open_ports.is_empty() {
                 existing.open_ports = record.open_ports.clone();
             }
+            if let Some(mac) = neighbor_macs.get(&record.ip) {
+                existing.mac = Some(mac.clone());
+            }
+            let hint = infer_device_hint(&record.open_ports);
+            if hint.is_some() {
+                existing.device_hint = hint;
+            }
         } else {
             seen_records.push(SeenRecord {
                 ip: record.ip,
@@ -730,6 +901,8 @@ fn update_seen_records(
                 hostname: record.hostname.clone(),
                 hostname_source: record.hostname_source.clone(),
                 open_ports: record.open_ports.clone(),
+                mac: neighbor_macs.get(&record.ip).cloned(),
+                device_hint: infer_device_hint(&record.open_ports),
             });
         }
     }
