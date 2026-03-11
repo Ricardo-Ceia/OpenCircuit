@@ -42,7 +42,9 @@ impl Default for DiscoveryConfig {
     fn default() -> Self {
         Self {
             cidr: String::from("192.168.1.0/24"),
-            ports: vec![22, 80, 443],
+            ports: vec![
+                22, 53, 80, 123, 139, 443, 445, 554, 631, 8008, 8009, 8080, 8443, 8888,
+            ],
             timeout: Duration::from_millis(500),
             concurrency: 64,
             retries: 1,
