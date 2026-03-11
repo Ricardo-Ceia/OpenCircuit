@@ -24,6 +24,7 @@ pub enum DiscoverySource {
     Ping,
     TcpConnect,
     Mdns,
+    Netbios,
     ReverseDns,
     Aggregated,
 }
@@ -167,11 +168,18 @@ pub fn run_discovery(
     let ping_probe = PingProbe::new(config.timeout);
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
     let mdns_probe = MdnsProbe::new();
+    let netbios_probe = NetbiosProbe::new();
     let dns_probe = ReverseDnsProbe::new();
     run_discovery_with_probes(
         config,
         host_limit,
-        &[&ping_probe, &tcp_probe, &mdns_probe, &dns_probe],
+        &[
+            &ping_probe,
+            &tcp_probe,
+            &mdns_probe,
+            &netbios_probe,
+            &dns_probe,
+        ],
     )
 }
 
@@ -186,11 +194,18 @@ where
     let ping_probe = PingProbe::new(config.timeout);
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
     let mdns_probe = MdnsProbe::new();
+    let netbios_probe = NetbiosProbe::new();
     let dns_probe = ReverseDnsProbe::new();
     run_discovery_with_probes_and_progress(
         config,
         host_limit,
-        &[&ping_probe, &tcp_probe, &mdns_probe, &dns_probe],
+        &[
+            &ping_probe,
+            &tcp_probe,
+            &mdns_probe,
+            &netbios_probe,
+            &dns_probe,
+        ],
         &mut on_progress,
     )
 }
@@ -489,6 +504,89 @@ impl<L: MdnsLookup + Sync> Probe for MdnsProbe<L> {
     }
 }
 
+pub trait NetbiosLookup {
+    fn lookup(&self, ip: Ipv4Addr) -> Option<String>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemNetbiosLookup;
+
+impl NetbiosLookup for SystemNetbiosLookup {
+    fn lookup(&self, ip: Ipv4Addr) -> Option<String> {
+        let output = Command::new("nmblookup")
+            .args(["-A", &ip.to_string()])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let text = String::from_utf8(output.stdout).ok()?;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("<00>") && !trimmed.contains("GROUP") {
+                let name = trimmed
+                    .split('<')
+                    .next()
+                    .map(str::trim)
+                    .unwrap_or_default()
+                    .to_string();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetbiosProbe<L: NetbiosLookup = SystemNetbiosLookup> {
+    resolver: L,
+}
+
+impl NetbiosProbe<SystemNetbiosLookup> {
+    pub fn new() -> Self {
+        Self {
+            resolver: SystemNetbiosLookup,
+        }
+    }
+}
+
+impl<L: NetbiosLookup> NetbiosProbe<L> {
+    pub fn with_resolver(resolver: L) -> Self {
+        Self { resolver }
+    }
+}
+
+impl<L: NetbiosLookup + Sync> Probe for NetbiosProbe<L> {
+    fn name(&self) -> &'static str {
+        "netbios"
+    }
+
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
+        let hostname = self.resolver.lookup(ip);
+
+        ProbeResult {
+            ip,
+            status: if hostname.is_some() {
+                DiscoveryStatus::Up
+            } else {
+                DiscoveryStatus::Unknown
+            },
+            source: DiscoverySource::Netbios,
+            hostname,
+            latency_ms: None,
+            open_ports: Vec::new(),
+            observed_at: SystemTime::now(),
+        }
+    }
+}
+
 pub trait ReverseLookup {
     fn lookup(&self, ip: Ipv4Addr) -> Option<String>;
 }
@@ -634,17 +732,19 @@ fn source_rank(source: &DiscoverySource) -> u8 {
         DiscoverySource::Ping => 0,
         DiscoverySource::TcpConnect => 1,
         DiscoverySource::Mdns => 2,
-        DiscoverySource::ReverseDns => 3,
-        DiscoverySource::Aggregated => 4,
+        DiscoverySource::Netbios => 3,
+        DiscoverySource::ReverseDns => 4,
+        DiscoverySource::Aggregated => 5,
     }
 }
 
 fn hostname_source_rank(source: &DiscoverySource) -> u8 {
     match source {
         DiscoverySource::Mdns => 0,
-        DiscoverySource::ReverseDns => 1,
-        DiscoverySource::TcpConnect => 2,
-        DiscoverySource::Ping => 3,
-        DiscoverySource::Aggregated => 4,
+        DiscoverySource::Netbios => 1,
+        DiscoverySource::ReverseDns => 2,
+        DiscoverySource::TcpConnect => 3,
+        DiscoverySource::Ping => 4,
+        DiscoverySource::Aggregated => 5,
     }
 }

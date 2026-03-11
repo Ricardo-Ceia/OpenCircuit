@@ -120,6 +120,15 @@ fn status_latency_and_sources_follow_precedence_and_dedup_rules() {
         },
         ProbeResult {
             ip,
+            status: DiscoveryStatus::Unknown,
+            source: DiscoverySource::Netbios,
+            hostname: None,
+            latency_ms: None,
+            open_ports: vec![],
+            observed_at: t,
+        },
+        ProbeResult {
+            ip,
             status: DiscoveryStatus::Up,
             source: DiscoverySource::ReverseDns,
             hostname: Some(String::from("core.local")),
@@ -143,6 +152,7 @@ fn status_latency_and_sources_follow_precedence_and_dedup_rules() {
             DiscoverySource::Ping,
             DiscoverySource::TcpConnect,
             DiscoverySource::Mdns,
+            DiscoverySource::Netbios,
             DiscoverySource::ReverseDns,
             DiscoverySource::Aggregated
         ]
@@ -179,4 +189,36 @@ fn prefers_mdns_hostname_over_reverse_dns_when_both_exist() {
     let record = &records[0];
     assert_eq!(record.hostname.as_deref(), Some("phone.local"));
     assert_eq!(record.hostname_source, Some(DiscoverySource::Mdns));
+}
+
+#[test]
+fn prefers_netbios_hostname_over_reverse_dns_when_mdns_absent() {
+    let t = SystemTime::UNIX_EPOCH + Duration::from_secs(450);
+    let ip = Ipv4Addr::new(192, 168, 1, 55);
+
+    let records = aggregate_probe_results(&[
+        ProbeResult {
+            ip,
+            status: DiscoveryStatus::Up,
+            source: DiscoverySource::ReverseDns,
+            hostname: Some(String::from("reverse-name.home")),
+            latency_ms: None,
+            open_ports: vec![],
+            observed_at: t,
+        },
+        ProbeResult {
+            ip,
+            status: DiscoveryStatus::Up,
+            source: DiscoverySource::Netbios,
+            hostname: Some(String::from("DESKTOP-ABC123")),
+            latency_ms: None,
+            open_ports: vec![],
+            observed_at: t,
+        },
+    ]);
+
+    assert_eq!(records.len(), 1);
+    let record = &records[0];
+    assert_eq!(record.hostname.as_deref(), Some("DESKTOP-ABC123"));
+    assert_eq!(record.hostname_source, Some(DiscoverySource::Netbios));
 }

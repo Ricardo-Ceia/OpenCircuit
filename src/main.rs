@@ -305,6 +305,7 @@ fn run(args: &[String]) -> Result<String, String> {
                         opencircuit::DiscoverySource::Ping => "ping",
                         opencircuit::DiscoverySource::TcpConnect => "tcp_connect",
                         opencircuit::DiscoverySource::Mdns => "mdns",
+                        opencircuit::DiscoverySource::Netbios => "netbios",
                         opencircuit::DiscoverySource::ReverseDns => "reverse_dns",
                         opencircuit::DiscoverySource::Aggregated => "aggregated",
                     })
