@@ -4,10 +4,11 @@ use std::net::Ipv4Addr;
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
     is_usable_host, network_bounds, next_ipv4, parse_and_normalize_cidr, parse_cidr, prev_ipv4,
-    subnet_mask, total_address_count, usable_host_count, usable_host_range, wildcard_mask,
+    run_discovery, subnet_mask, total_address_count, usable_host_count, usable_host_range,
+    wildcard_mask,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -228,6 +229,51 @@ fn run(args: &[String]) -> Result<String, String> {
             };
 
             Ok(String::from(relation))
+        }
+        "scan" => {
+            if args.len() != 3 {
+                return Err(String::from(USAGE));
+            }
+
+            let config = opencircuit::DiscoveryConfig {
+                cidr: args[2].clone(),
+                ..opencircuit::DiscoveryConfig::default()
+            };
+            let records =
+                run_discovery(&config, 1024).map_err(|err| format!("Scan failed: {err}"))?;
+
+            let mut lines = Vec::with_capacity(records.len() + 1);
+            lines.push(format!(
+                "scanned_hosts={} records={}",
+                records.len(),
+                records.len()
+            ));
+
+            for record in records {
+                let status = match record.status {
+                    opencircuit::DiscoveryStatus::Up => "up",
+                    opencircuit::DiscoveryStatus::Down => "down",
+                    opencircuit::DiscoveryStatus::Unknown => "unknown",
+                };
+                let hostname = record.hostname.unwrap_or_else(|| String::from("-"));
+                let ports = if record.open_ports.is_empty() {
+                    String::from("-")
+                } else {
+                    record
+                        .open_ports
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect::<Vec<String>>()
+                        .join(",")
+                };
+
+                lines.push(format!(
+                    "ip={} status={} hostname={} open_ports={}",
+                    record.ip, status, hostname, ports
+                ));
+            }
+
+            Ok(lines.join("\n"))
         }
         _ => Err(String::from(USAGE)),
     }
