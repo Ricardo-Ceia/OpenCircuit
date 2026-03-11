@@ -149,12 +149,20 @@ fn run_discovery_with_progress_reports_each_host_once() {
         .expect("discovery should succeed");
 
     assert_eq!(records.len(), 2);
+    assert_eq!(progress_events.len(), 2);
+    assert_eq!(progress_events[0].0, 1);
+    assert_eq!(progress_events[1].0, 2);
+    assert_eq!(progress_events[0].1, 2);
+    assert_eq!(progress_events[1].1, 2);
+
+    let mut seen_ips = progress_events
+        .iter()
+        .map(|(_, _, ip)| *ip)
+        .collect::<Vec<Ipv4Addr>>();
+    seen_ips.sort();
     assert_eq!(
-        progress_events,
-        vec![
-            (1, 2, Ipv4Addr::new(192, 168, 1, 1)),
-            (2, 2, Ipv4Addr::new(192, 168, 1, 2))
-        ]
+        seen_ips,
+        vec![Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(192, 168, 1, 2)]
     );
 }
 

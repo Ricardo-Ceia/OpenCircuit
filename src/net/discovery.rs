@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -206,23 +207,21 @@ where
         return Ok(Vec::new());
     }
 
-    for (index, ip) in hosts.iter().copied().enumerate() {
-        on_progress(index + 1, total_hosts, ip);
-    }
-
     let worker_count = config.concurrency.clamp(1, total_hosts);
     let mut probe_results: Vec<ProbeResult> = Vec::new();
 
     if worker_count == 1 {
-        for ip in hosts {
+        for (index, ip) in hosts.into_iter().enumerate() {
             for probe in probes {
                 probe_results.push(probe.probe_host(ip));
             }
+            on_progress(index + 1, total_hosts, ip);
         }
         return Ok(aggregate_probe_results(&probe_results));
     }
 
     thread::scope(|scope| {
+        let (tx, rx) = mpsc::channel::<(Ipv4Addr, Vec<ProbeResult>)>();
         let mut handles = Vec::with_capacity(worker_count);
 
         for worker_index in 0..worker_count {
@@ -232,22 +231,34 @@ where
                 .skip(worker_index)
                 .step_by(worker_count)
                 .collect();
+            let tx = tx.clone();
 
             handles.push(scope.spawn(move || {
-                let mut local_results: Vec<ProbeResult> = Vec::new();
                 for ip in worker_hosts {
+                    let mut per_host_results: Vec<ProbeResult> = Vec::new();
                     for probe in probes {
-                        local_results.push(probe.probe_host(ip));
+                        per_host_results.push(probe.probe_host(ip));
                     }
+                    let _ = tx.send((ip, per_host_results));
                 }
-                local_results
             }));
         }
 
-        for handle in handles {
-            if let Ok(mut local_results) = handle.join() {
-                probe_results.append(&mut local_results);
+        drop(tx);
+
+        let mut completed = 0usize;
+        while completed < total_hosts {
+            if let Ok((ip, mut host_results)) = rx.recv() {
+                completed += 1;
+                on_progress(completed, total_hosts, ip);
+                probe_results.append(&mut host_results);
+            } else {
+                break;
             }
+        }
+
+        for handle in handles {
+            let _ = handle.join();
         }
     });
 
