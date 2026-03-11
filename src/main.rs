@@ -5,8 +5,8 @@ use std::time::Instant;
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
     is_usable_host, network_bounds, next_ipv4, parse_and_normalize_cidr, parse_cidr, prev_ipv4,
-    run_discovery_with_progress, subnet_mask, total_address_count, usable_host_count,
-    usable_host_range, wildcard_mask,
+    run_discovery_with_probes_and_progress, run_discovery_with_progress, subnet_mask,
+    total_address_count, usable_host_count, usable_host_range, wildcard_mask, TcpConnectProbe,
 };
 
 const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>";
@@ -232,19 +232,19 @@ fn run(args: &[String]) -> Result<String, String> {
             Ok(String::from(relation))
         }
         "scan" => {
-            if args.len() != 3 && args.len() != 4 {
+            if args.len() < 3 {
                 return Err(String::from(USAGE));
             }
 
-            let show_all = if args.len() == 4 {
-                if args[3] == "--all" {
-                    true
-                } else {
-                    return Err(String::from(USAGE));
+            let mut show_all = false;
+            let mut no_dns = false;
+            for flag in &args[3..] {
+                match flag.as_str() {
+                    "--all" => show_all = true,
+                    "--no-dns" => no_dns = true,
+                    _ => return Err(String::from(USAGE)),
                 }
-            } else {
-                false
-            };
+            }
 
             let config = opencircuit::DiscoveryConfig {
                 cidr: args[2].clone(),
@@ -254,8 +254,19 @@ fn run(args: &[String]) -> Result<String, String> {
             let mut progress_callback = |current: usize, total: usize, ip: Ipv4Addr| {
                 eprintln!("[scan] probing {current}/{total}: {ip}");
             };
-            let records = run_discovery_with_progress(&config, 1024, &mut progress_callback)
-                .map_err(|err| format!("Scan failed: {err}"))?;
+            let records = if no_dns {
+                let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
+                run_discovery_with_probes_and_progress(
+                    &config,
+                    1024,
+                    &[&tcp_probe],
+                    &mut progress_callback,
+                )
+                .map_err(|err| format!("Scan failed: {err}"))?
+            } else {
+                run_discovery_with_progress(&config, 1024, &mut progress_callback)
+                    .map_err(|err| format!("Scan failed: {err}"))?
+            };
             let elapsed_ms = started.elapsed().as_millis();
 
             let displayed_records: Vec<opencircuit::DeviceRecord> = if show_all {

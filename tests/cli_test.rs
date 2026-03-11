@@ -607,6 +607,19 @@ fn scan_command_rejects_unknown_flag() {
 }
 
 #[test]
+fn scan_command_supports_no_dns_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--no-dns"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("scanned_hosts="));
+    assert!(stdout.contains("shown="));
+}
+
+#[test]
 fn scan_command_fails_for_invalid_cidr() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["scan", "bad/24"])
