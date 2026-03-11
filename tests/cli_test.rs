@@ -567,6 +567,7 @@ fn scan_command_outputs_header_and_records() {
     assert!(stdout.contains("gateway_ip="));
     assert!(stdout.contains("gateway_iface="));
     assert!(stdout.contains("gateway_neighbors="));
+    assert!(stdout.contains("dhcp_leases="));
     assert!(stdout.contains("ip=127.0.0.1"));
     assert!(stdout.contains("ip=127.0.0.2"));
     assert!(stdout.contains("connectivity_source="));
@@ -698,6 +699,43 @@ fn scan_command_shows_recently_seen_devices_from_state_cache() {
 }
 
 #[test]
+fn scan_command_accepts_dhcp_leases_file_for_authoritative_presence() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock must be after unix epoch")
+        .as_nanos();
+    let leases_file = std::env::temp_dir().join(format!("opencircuit-leases-{unique}.txt"));
+    let leases_raw = leases_file.to_string_lossy().to_string();
+
+    std::fs::write(
+        &leases_file,
+        "1735689600 aa:bb:cc:dd:ee:ff 127.0.0.2 lease-host *\n",
+    )
+    .expect("failed to write temporary leases file");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args([
+            "scan",
+            "127.0.0.0/30",
+            "--no-dns",
+            "--dhcp-leases",
+            &leases_raw,
+            "--all",
+        ])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("dhcp_leases="));
+    assert!(stdout.contains("ip=127.0.0.2"));
+    assert!(stdout.contains("connectivity_source=dhcp_lease"));
+    assert!(stdout.contains("hostname=lease-host"));
+
+    let _ = std::fs::remove_file(leases_file);
+}
+
+#[test]
 fn scan_command_rejects_multiple_profiles() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["scan", "127.0.0.0/30", "--fast", "--deep"])
@@ -730,6 +768,17 @@ fn scan_command_rejects_empty_state_file_flag() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("--state-file cannot be empty"));
+}
+
+#[test]
+fn scan_command_rejects_empty_dhcp_leases_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--dhcp-leases", ""])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--dhcp-leases cannot be empty"));
 }
 
 #[test]

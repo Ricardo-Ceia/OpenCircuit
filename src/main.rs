@@ -16,7 +16,13 @@ use opencircuit::{
 const DEFAULT_RECENT_MINUTES: u64 = 24 * 60;
 const DEFAULT_STATE_FILE: &str = ".opencircuit-seen-cache.tsv";
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--deep|--balanced|--fast] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>] [--recent-minutes <n>] [--state-file <path>]";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--deep|--balanced|--fast] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>] [--recent-minutes <n>] [--state-file <path>] [--dhcp-leases <path>]";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DhcpLeaseEntry {
+    mac: Option<String>,
+    hostname: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SeenRecord {
@@ -290,6 +296,7 @@ fn run(args: &[String]) -> Result<String, String> {
             let mut override_concurrency: Option<usize> = None;
             let mut recent_minutes = DEFAULT_RECENT_MINUTES;
             let mut state_file = String::from(DEFAULT_STATE_FILE);
+            let mut dhcp_leases_path: Option<String> = None;
             let mut i = 3usize;
             while i < args.len() {
                 match args[i].as_str() {
@@ -377,6 +384,17 @@ fn run(args: &[String]) -> Result<String, String> {
                         }
                         i += 2;
                     }
+                    "--dhcp-leases" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --dhcp-leases"));
+                        }
+                        let path = args[i + 1].trim();
+                        if path.is_empty() {
+                            return Err(String::from("--dhcp-leases cannot be empty"));
+                        }
+                        dhcp_leases_path = Some(path.to_string());
+                        i += 2;
+                    }
                     _ => return Err(String::from(USAGE)),
                 }
             }
@@ -435,9 +453,16 @@ fn run(args: &[String]) -> Result<String, String> {
             let now_unix_s = unix_now_secs();
             let (default_gateway, default_interface) = load_default_route();
             let neighbor_macs = load_neighbor_mac_map(default_interface.as_deref());
+            let dhcp_leases = load_dhcp_leases_map(dhcp_leases_path.as_deref())
+                .map_err(|err| format!("Scan failed: {err}"))?;
             let (target_ip, target_prefix) = parse_cidr(&config.cidr)
                 .map_err(|err| format!("Scan failed: Invalid CIDR: {err}"))?;
             let gateway_neighbors: HashSet<Ipv4Addr> = neighbor_macs
+                .keys()
+                .copied()
+                .filter(|ip| cidr_contains(target_ip, target_prefix, *ip).unwrap_or(false))
+                .collect();
+            let dhcp_neighbors: HashSet<Ipv4Addr> = dhcp_leases
                 .keys()
                 .copied()
                 .filter(|ip| cidr_contains(target_ip, target_prefix, *ip).unwrap_or(false))
@@ -461,7 +486,10 @@ fn run(args: &[String]) -> Result<String, String> {
                 let cached = seen_records.iter().find(|entry| entry.ip == record.ip);
 
                 let gateway_seen = gateway_neighbors.contains(&record.ip);
-                let presence = if record.status == opencircuit::DiscoveryStatus::Up || gateway_seen
+                let dhcp_seen = dhcp_neighbors.contains(&record.ip);
+                let presence = if record.status == opencircuit::DiscoveryStatus::Up
+                    || gateway_seen
+                    || dhcp_seen
                 {
                     Presence::Online
                 } else if recent_window_s > 0
@@ -488,23 +516,39 @@ fn run(args: &[String]) -> Result<String, String> {
                         merged.open_ports = cached.open_ports.clone();
                     }
                 }
+                if let Some(lease) = dhcp_leases.get(&record.ip) {
+                    if merged.hostname.is_none() {
+                        merged.hostname = lease.hostname.clone();
+                    }
+                    if merged.hostname_source.is_none() && lease.hostname.is_some() {
+                        merged.hostname_source = Some(opencircuit::DiscoverySource::Aggregated);
+                    }
+                }
 
                 let mac = neighbor_macs
                     .get(&record.ip)
                     .cloned()
+                    .or_else(|| {
+                        dhcp_leases
+                            .get(&record.ip)
+                            .and_then(|lease| lease.mac.clone())
+                    })
                     .or_else(|| cached.and_then(|entry| entry.mac.clone()));
-                let connectivity_source =
-                    if record.status == opencircuit::DiscoveryStatus::Up && gateway_seen {
-                        "both"
-                    } else if record.status == opencircuit::DiscoveryStatus::Up {
-                        "active_probe"
-                    } else if gateway_seen {
-                        "gateway_table"
-                    } else if presence == Presence::RecentlySeen {
-                        "recent_cache"
-                    } else {
-                        "none"
-                    };
+                let connectivity_source = if record.status == opencircuit::DiscoveryStatus::Up
+                    && (gateway_seen || dhcp_seen)
+                {
+                    "both"
+                } else if record.status == opencircuit::DiscoveryStatus::Up {
+                    "active_probe"
+                } else if dhcp_seen {
+                    "dhcp_lease"
+                } else if gateway_seen {
+                    "gateway_table"
+                } else if presence == Presence::RecentlySeen {
+                    "recent_cache"
+                } else {
+                    "none"
+                };
                 if show_all || presence != Presence::Offline {
                     displayed_records.push((merged, presence, mac, connectivity_source));
                 }
@@ -512,7 +556,7 @@ fn run(args: &[String]) -> Result<String, String> {
 
             let mut lines = Vec::with_capacity(displayed_records.len() + 1);
             lines.push(format!(
-                "scanned_hosts={} records={} shown={} elapsed_ms={} recent_minutes={} gateway_ip={} gateway_iface={} gateway_neighbors={}",
+                "scanned_hosts={} records={} shown={} elapsed_ms={} recent_minutes={} gateway_ip={} gateway_iface={} gateway_neighbors={} dhcp_leases={}",
                 records.len(),
                 records.len(),
                 displayed_records.len(),
@@ -522,7 +566,8 @@ fn run(args: &[String]) -> Result<String, String> {
                     .map(|ip| ip.to_string())
                     .unwrap_or_else(|| String::from("-")),
                 default_interface.unwrap_or_else(|| String::from("-")),
-                gateway_neighbors.len()
+                gateway_neighbors.len(),
+                dhcp_neighbors.len()
             ));
 
             for (record, presence, mac, connectivity_source) in displayed_records {
@@ -762,6 +807,68 @@ fn hostname_confidence_score(source: Option<&opencircuit::DiscoverySource>) -> u
         Some(opencircuit::DiscoverySource::ReverseDns) => 90,
         _ => 0,
     }
+}
+
+fn parse_dhcp_lease_line(line: &str) -> Option<(Ipv4Addr, DhcpLeaseEntry)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let lease_like = parts[0].parse::<u64>().is_ok();
+    if lease_like {
+        let mac = normalize_mac(parts[1]);
+        let ip = parts[2].parse::<Ipv4Addr>().ok()?;
+        let hostname = if parts.len() >= 4 && parts[3] != "*" && !parts[3].is_empty() {
+            Some(parts[3].to_string())
+        } else {
+            None
+        };
+        return Some((ip, DhcpLeaseEntry { mac, hostname }));
+    }
+
+    if parts.len() >= 2 {
+        let ip = parts[0].parse::<Ipv4Addr>().ok()?;
+        let mut mac = None;
+        let mut hostname = None;
+        for token in &parts[1..] {
+            if mac.is_none() {
+                mac = normalize_mac(token);
+                if mac.is_some() {
+                    continue;
+                }
+            }
+            if hostname.is_none() && *token != "*" {
+                hostname = Some((*token).to_string());
+            }
+        }
+        return Some((ip, DhcpLeaseEntry { mac, hostname }));
+    }
+
+    None
+}
+
+fn load_dhcp_leases_map(path: Option<&str>) -> Result<HashMap<Ipv4Addr, DhcpLeaseEntry>, String> {
+    let Some(path) = path else {
+        return Ok(HashMap::new());
+    };
+
+    let content = fs::read_to_string(path)
+        .map_err(|err| format!("could not read DHCP leases file '{path}': {err}"))?;
+
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        if let Some((ip, entry)) = parse_dhcp_lease_line(line) {
+            map.insert(ip, entry);
+        }
+    }
+
+    Ok(map)
 }
 
 fn load_seen_records(path: &str) -> Result<Vec<SeenRecord>, String> {
