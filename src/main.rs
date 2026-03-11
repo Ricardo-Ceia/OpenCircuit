@@ -16,7 +16,7 @@ use opencircuit::{
 const DEFAULT_RECENT_MINUTES: u64 = 24 * 60;
 const DEFAULT_STATE_FILE: &str = ".opencircuit-seen-cache.tsv";
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--deep|--balanced|--fast] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>] [--recent-minutes <n>] [--state-file <path>] [--dhcp-leases <path>]";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>\n\nScan Options:\n  --all                                 Show offline records too\n  --no-dns                              Disable DNS/mDNS/NetBIOS hostname probes\n  --fast | --balanced | --deep          Scan profile (default: --deep)\n  --ports <csv>                         Override TCP ports list (example: 22,80,443)\n  --timeout-ms <n>                      Per-probe timeout in milliseconds\n  --concurrency <n>                     Concurrent host probes\n  --recent-minutes <n>                  Keep recently seen devices visible\n  --state-file <path>                   Local state cache file path\n  --dhcp-leases <path>                  Local DHCP lease file (authoritative source)\n  --dhcp-leases-ssh <user@host:/path>   Fetch DHCP leases via SSH\n\nHelp:\n  opencircuit help\n  opencircuit --help\n  opencircuit -h";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DhcpLeaseEntry {
@@ -55,6 +55,10 @@ impl Presence {
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
         return Err(String::from(USAGE));
+    }
+
+    if args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
+        return Ok(String::from(USAGE));
     }
 
     match args[1].as_str() {
@@ -297,6 +301,7 @@ fn run(args: &[String]) -> Result<String, String> {
             let mut recent_minutes = DEFAULT_RECENT_MINUTES;
             let mut state_file = String::from(DEFAULT_STATE_FILE);
             let mut dhcp_leases_path: Option<String> = None;
+            let mut dhcp_leases_ssh: Option<String> = None;
             let mut i = 3usize;
             while i < args.len() {
                 match args[i].as_str() {
@@ -395,8 +400,25 @@ fn run(args: &[String]) -> Result<String, String> {
                         dhcp_leases_path = Some(path.to_string());
                         i += 2;
                     }
+                    "--dhcp-leases-ssh" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --dhcp-leases-ssh"));
+                        }
+                        let target = args[i + 1].trim();
+                        if target.is_empty() {
+                            return Err(String::from("--dhcp-leases-ssh cannot be empty"));
+                        }
+                        dhcp_leases_ssh = Some(target.to_string());
+                        i += 2;
+                    }
                     _ => return Err(String::from(USAGE)),
                 }
+            }
+
+            if dhcp_leases_path.is_some() && dhcp_leases_ssh.is_some() {
+                return Err(String::from(
+                    "Use only one DHCP lease source: --dhcp-leases or --dhcp-leases-ssh",
+                ));
             }
 
             let profile = selected_profile.unwrap_or(ScanProfile::Deep);
@@ -453,8 +475,13 @@ fn run(args: &[String]) -> Result<String, String> {
             let now_unix_s = unix_now_secs();
             let (default_gateway, default_interface) = load_default_route();
             let neighbor_macs = load_neighbor_mac_map(default_interface.as_deref());
-            let dhcp_leases = load_dhcp_leases_map(dhcp_leases_path.as_deref())
-                .map_err(|err| format!("Scan failed: {err}"))?;
+            let dhcp_leases = if let Some(remote_target) = dhcp_leases_ssh.as_deref() {
+                load_dhcp_leases_from_ssh(remote_target)
+                    .map_err(|err| format!("Scan failed: {err}"))?
+            } else {
+                load_dhcp_leases_map(dhcp_leases_path.as_deref())
+                    .map_err(|err| format!("Scan failed: {err}"))?
+            };
             let (target_ip, target_prefix) = parse_cidr(&config.cidr)
                 .map_err(|err| format!("Scan failed: Invalid CIDR: {err}"))?;
             let gateway_neighbors: HashSet<Ipv4Addr> = neighbor_macs
@@ -861,6 +888,66 @@ fn load_dhcp_leases_map(path: Option<&str>) -> Result<HashMap<Ipv4Addr, DhcpLeas
     let content = fs::read_to_string(path)
         .map_err(|err| format!("could not read DHCP leases file '{path}': {err}"))?;
 
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        if let Some((ip, entry)) = parse_dhcp_lease_line(line) {
+            map.insert(ip, entry);
+        }
+    }
+
+    Ok(map)
+}
+
+fn parse_ssh_lease_target(target: &str) -> Result<(String, String), String> {
+    let Some(separator_idx) = target.find(':') else {
+        return Err(String::from(
+            "Invalid --dhcp-leases-ssh value, expected user@host:/path/to/leases",
+        ));
+    };
+
+    let host = target[..separator_idx].trim();
+    let path = target[separator_idx + 1..].trim();
+    if host.is_empty() || path.is_empty() {
+        return Err(String::from(
+            "Invalid --dhcp-leases-ssh value, expected user@host:/path/to/leases",
+        ));
+    }
+
+    Ok((host.to_string(), path.to_string()))
+}
+
+fn load_dhcp_leases_from_ssh(target: &str) -> Result<HashMap<Ipv4Addr, DhcpLeaseEntry>, String> {
+    let (host, path) = parse_ssh_lease_target(target)?;
+
+    let output = Command::new("ssh")
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=3",
+            &host,
+            "cat",
+            &path,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| format!("failed to execute ssh for DHCP leases: {err}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            return Err(format!(
+                "ssh command failed while loading DHCP leases from {host}"
+            ));
+        }
+        return Err(format!(
+            "ssh command failed while loading DHCP leases from {host}: {detail}"
+        ));
+    }
+
+    let content = String::from_utf8_lossy(&output.stdout);
     let mut map = HashMap::new();
     for line in content.lines() {
         if let Some((ip, entry)) = parse_dhcp_lease_line(line) {

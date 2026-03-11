@@ -1,6 +1,8 @@
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const HELP_USAGE_PREFIX: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>";
+
 #[test]
 fn normalize_command_outputs_network_cidr() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
@@ -34,8 +36,7 @@ fn normalize_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
 
 #[test]
@@ -310,8 +311,7 @@ fn classify_cidr_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
 
 #[test]
@@ -377,8 +377,7 @@ fn masks_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
 
 #[test]
@@ -417,8 +416,7 @@ fn range_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
 
 #[test]
@@ -466,8 +464,7 @@ fn overlap_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
 
 #[test]
@@ -547,8 +544,7 @@ fn relation_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
 
 #[test]
@@ -782,6 +778,51 @@ fn scan_command_rejects_empty_dhcp_leases_flag() {
 }
 
 #[test]
+fn scan_command_rejects_empty_dhcp_leases_ssh_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--dhcp-leases-ssh", ""])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--dhcp-leases-ssh cannot be empty"));
+}
+
+#[test]
+fn scan_command_rejects_dual_dhcp_sources() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args([
+            "scan",
+            "127.0.0.0/30",
+            "--dhcp-leases",
+            "/tmp/leases",
+            "--dhcp-leases-ssh",
+            "user@router:/tmp/dhcp.leases",
+        ])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("Use only one DHCP lease source: --dhcp-leases or --dhcp-leases-ssh"));
+}
+
+#[test]
+fn help_command_outputs_expanded_scan_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .arg("help")
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Scan Options:"));
+    assert!(stdout.contains("--dhcp-leases <path>"));
+    assert!(stdout.contains("--dhcp-leases-ssh <user@host:/path>"));
+    assert!(stdout.contains("Help:"));
+}
+
+#[test]
 fn scan_command_rejects_invalid_ports_flag() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["scan", "127.0.0.0/30", "--ports", "22,abc"])
@@ -852,6 +893,5 @@ fn scan_command_fails_with_missing_argument() {
 
     assert!(!output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(HELP_USAGE_PREFIX));
 }
