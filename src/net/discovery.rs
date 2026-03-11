@@ -64,6 +64,7 @@ pub struct DeviceRecord {
     pub ip: Ipv4Addr,
     pub status: DiscoveryStatus,
     pub hostname: Option<String>,
+    pub hostname_source: Option<DiscoverySource>,
     pub latency_ms: Option<u32>,
     pub open_ports: Vec<u16>,
     pub sources: Vec<DiscoverySource>,
@@ -475,6 +476,7 @@ pub fn aggregate_probe_results(results: &[ProbeResult]) -> Vec<DeviceRecord> {
     for (ip, group) in grouped {
         let mut status = DiscoveryStatus::Down;
         let mut hostname: Option<String> = None;
+        let mut hostname_source: Option<DiscoverySource> = None;
         let mut latency_ms: Option<u32> = None;
         let mut open_ports: Vec<u16> = Vec::new();
         let mut sources: Vec<DiscoverySource> = Vec::new();
@@ -487,6 +489,7 @@ pub fn aggregate_probe_results(results: &[ProbeResult]) -> Vec<DeviceRecord> {
             if hostname.is_none() {
                 if let Some(name) = result.hostname.as_ref().filter(|n| !n.trim().is_empty()) {
                     hostname = Some(name.clone());
+                    hostname_source = Some(result.source.clone());
                 }
             }
 
@@ -519,6 +522,7 @@ pub fn aggregate_probe_results(results: &[ProbeResult]) -> Vec<DeviceRecord> {
             ip,
             status,
             hostname,
+            hostname_source,
             latency_ms,
             open_ports,
             sources,

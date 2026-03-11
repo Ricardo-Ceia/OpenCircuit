@@ -93,6 +93,7 @@ fn device_record_model_holds_expected_fields() {
         ip: Ipv4Addr::new(192, 168, 1, 20),
         status: DiscoveryStatus::Unknown,
         hostname: None,
+        hostname_source: None,
         latency_ms: None,
         open_ports: vec![22],
         sources: vec![DiscoverySource::Aggregated, DiscoverySource::ReverseDns],
@@ -103,6 +104,7 @@ fn device_record_model_holds_expected_fields() {
     assert_eq!(record.ip, Ipv4Addr::new(192, 168, 1, 20));
     assert_eq!(record.status, DiscoveryStatus::Unknown);
     assert_eq!(record.hostname, None);
+    assert_eq!(record.hostname_source, None);
     assert_eq!(record.latency_ms, None);
     assert_eq!(record.open_ports, vec![22]);
     assert_eq!(

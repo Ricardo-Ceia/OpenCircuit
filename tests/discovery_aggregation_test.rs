@@ -35,6 +35,7 @@ fn aggregates_tcp_and_reverse_dns_results_for_same_host() {
     assert_eq!(record.ip, ip);
     assert_eq!(record.status, DiscoveryStatus::Up);
     assert_eq!(record.hostname.as_deref(), Some("nas.local"));
+    assert_eq!(record.hostname_source, Some(DiscoverySource::ReverseDns));
     assert_eq!(record.latency_ms, Some(12));
     assert_eq!(record.open_ports, vec![22, 443]);
     assert_eq!(
@@ -124,6 +125,7 @@ fn status_latency_and_sources_follow_precedence_and_dedup_rules() {
     let record = &records[0];
 
     assert_eq!(record.status, DiscoveryStatus::Up);
+    assert_eq!(record.hostname_source, Some(DiscoverySource::ReverseDns));
     assert_eq!(record.latency_ms, Some(40));
     assert_eq!(record.open_ports, vec![22, 8080]);
     assert_eq!(

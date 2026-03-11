@@ -299,6 +299,15 @@ fn run(args: &[String]) -> Result<String, String> {
                     opencircuit::DiscoveryStatus::Unknown => "unknown",
                 };
                 let hostname = record.hostname.unwrap_or_else(|| String::from("-"));
+                let hostname_source = record
+                    .hostname_source
+                    .map(|source| match source {
+                        opencircuit::DiscoverySource::Ping => "ping",
+                        opencircuit::DiscoverySource::TcpConnect => "tcp_connect",
+                        opencircuit::DiscoverySource::ReverseDns => "reverse_dns",
+                        opencircuit::DiscoverySource::Aggregated => "aggregated",
+                    })
+                    .unwrap_or("-");
                 let ports = if record.open_ports.is_empty() {
                     String::from("-")
                 } else {
@@ -311,8 +320,8 @@ fn run(args: &[String]) -> Result<String, String> {
                 };
 
                 lines.push(format!(
-                    "ip={} status={} hostname={} open_ports={}",
-                    record.ip, status, hostname, ports
+                    "ip={} status={} hostname={} hostname_source={} open_ports={}",
+                    record.ip, status, hostname, hostname_source, ports
                 ));
             }
 
