@@ -232,9 +232,19 @@ fn run(args: &[String]) -> Result<String, String> {
             Ok(String::from(relation))
         }
         "scan" => {
-            if args.len() != 3 {
+            if args.len() != 3 && args.len() != 4 {
                 return Err(String::from(USAGE));
             }
+
+            let show_all = if args.len() == 4 {
+                if args[3] == "--all" {
+                    true
+                } else {
+                    return Err(String::from(USAGE));
+                }
+            } else {
+                false
+            };
 
             let config = opencircuit::DiscoveryConfig {
                 cidr: args[2].clone(),
@@ -248,15 +258,30 @@ fn run(args: &[String]) -> Result<String, String> {
                 .map_err(|err| format!("Scan failed: {err}"))?;
             let elapsed_ms = started.elapsed().as_millis();
 
-            let mut lines = Vec::with_capacity(records.len() + 1);
+            let displayed_records: Vec<opencircuit::DeviceRecord> = if show_all {
+                records.clone()
+            } else {
+                records
+                    .iter()
+                    .filter(|record| {
+                        record.status == opencircuit::DiscoveryStatus::Up
+                            || record.hostname.is_some()
+                            || !record.open_ports.is_empty()
+                    })
+                    .cloned()
+                    .collect()
+            };
+
+            let mut lines = Vec::with_capacity(displayed_records.len() + 1);
             lines.push(format!(
-                "scanned_hosts={} records={} elapsed_ms={}",
+                "scanned_hosts={} records={} shown={} elapsed_ms={}",
                 records.len(),
                 records.len(),
+                displayed_records.len(),
                 elapsed_ms
             ));
 
-            for record in records {
+            for record in displayed_records {
                 let status = match record.status {
                     opencircuit::DiscoveryStatus::Up => "up",
                     opencircuit::DiscoveryStatus::Down => "down",

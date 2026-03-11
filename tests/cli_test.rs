@@ -561,9 +561,49 @@ fn scan_command_outputs_header_and_records() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("scanned_hosts="));
     assert!(stdout.contains("records="));
+    assert!(stdout.contains("shown="));
     assert!(stdout.contains("elapsed_ms="));
     assert!(stdout.contains("ip=127.0.0.1"));
     assert!(String::from_utf8_lossy(&output.stderr).contains("[scan] probing"));
+}
+
+#[test]
+fn scan_command_defaults_to_compact_output() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "192.168.1.0/30"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("shown="));
+    assert!(!stdout.contains("ip=192.168.1.1 status=down"));
+}
+
+#[test]
+fn scan_command_all_flag_shows_every_record() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "192.168.1.0/30", "--all"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("shown=2"));
+    assert!(stdout.contains("ip=192.168.1.1"));
+    assert!(stdout.contains("ip=192.168.1.2"));
+}
+
+#[test]
+fn scan_command_rejects_unknown_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "192.168.1.0/30", "--verbose"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Usage:"));
 }
 
 #[test]
