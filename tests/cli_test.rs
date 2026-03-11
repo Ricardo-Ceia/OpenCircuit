@@ -622,6 +622,65 @@ fn scan_command_supports_no_dns_flag() {
 }
 
 #[test]
+fn scan_command_accepts_custom_scan_tuning_flags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args([
+            "scan",
+            "127.0.0.0/30",
+            "--ports",
+            "22,80",
+            "--timeout-ms",
+            "200",
+            "--concurrency",
+            "4",
+            "--no-dns",
+        ])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("scanned_hosts="));
+}
+
+#[test]
+fn scan_command_rejects_invalid_ports_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--ports", "22,abc"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Invalid --ports list"));
+}
+
+#[test]
+fn scan_command_rejects_invalid_timeout_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--timeout-ms", "0"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--timeout-ms must be greater than zero")
+    );
+}
+
+#[test]
+fn scan_command_rejects_invalid_concurrency_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--concurrency", "0"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--concurrency must be greater than zero")
+    );
+}
+
+#[test]
 fn scan_command_fails_for_invalid_cidr() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["scan", "bad/24"])

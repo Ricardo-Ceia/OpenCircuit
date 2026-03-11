@@ -1,6 +1,6 @@
 use std::env;
 use std::net::Ipv4Addr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
@@ -9,7 +9,7 @@ use opencircuit::{
     total_address_count, usable_host_count, usable_host_range, wildcard_mask, TcpConnectProbe,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns]";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>]";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -236,21 +236,63 @@ fn run(args: &[String]) -> Result<String, String> {
                 return Err(String::from(USAGE));
             }
 
+            let mut config = opencircuit::DiscoveryConfig {
+                cidr: args[2].clone(),
+                ..opencircuit::DiscoveryConfig::default()
+            };
             let mut show_all = false;
             let mut no_dns = false;
-            for flag in &args[3..] {
-                match flag.as_str() {
-                    "--compact" => {}
-                    "--all" => show_all = true,
-                    "--no-dns" => no_dns = true,
+            let mut i = 3usize;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--compact" => {
+                        i += 1;
+                    }
+                    "--all" => {
+                        show_all = true;
+                        i += 1;
+                    }
+                    "--no-dns" => {
+                        no_dns = true;
+                        i += 1;
+                    }
+                    "--ports" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --ports"));
+                        }
+                        config.ports = parse_ports_csv(&args[i + 1])?;
+                        i += 2;
+                    }
+                    "--timeout-ms" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --timeout-ms"));
+                        }
+                        let timeout_ms = args[i + 1]
+                            .parse::<u64>()
+                            .map_err(|_| String::from("Invalid --timeout-ms value"))?;
+                        if timeout_ms == 0 {
+                            return Err(String::from("--timeout-ms must be greater than zero"));
+                        }
+                        config.timeout = Duration::from_millis(timeout_ms);
+                        i += 2;
+                    }
+                    "--concurrency" => {
+                        if i + 1 >= args.len() {
+                            return Err(String::from("Missing value for --concurrency"));
+                        }
+                        let concurrency = args[i + 1]
+                            .parse::<usize>()
+                            .map_err(|_| String::from("Invalid --concurrency value"))?;
+                        if concurrency == 0 {
+                            return Err(String::from("--concurrency must be greater than zero"));
+                        }
+                        config.concurrency = concurrency;
+                        i += 2;
+                    }
                     _ => return Err(String::from(USAGE)),
                 }
             }
 
-            let config = opencircuit::DiscoveryConfig {
-                cidr: args[2].clone(),
-                ..opencircuit::DiscoveryConfig::default()
-            };
             let started = Instant::now();
             let mut progress_callback = |current: usize, total: usize, ip: Ipv4Addr| {
                 eprintln!("[scan] probing {current}/{total}: {ip}");
@@ -328,6 +370,33 @@ fn run(args: &[String]) -> Result<String, String> {
         }
         _ => Err(String::from(USAGE)),
     }
+}
+
+fn parse_ports_csv(raw: &str) -> Result<Vec<u16>, String> {
+    if raw.trim().is_empty() {
+        return Err(String::from("--ports cannot be empty"));
+    }
+
+    let mut ports = Vec::new();
+    for part in raw.split(',') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            return Err(String::from("Invalid --ports list"));
+        }
+        let port = trimmed
+            .parse::<u16>()
+            .map_err(|_| String::from("Invalid --ports list"))?;
+        if port == 0 {
+            return Err(String::from("Ports must be between 1 and 65535"));
+        }
+        ports.push(port);
+    }
+
+    if ports.is_empty() {
+        return Err(String::from("--ports cannot be empty"));
+    }
+
+    Ok(ports)
 }
 
 fn main() {
