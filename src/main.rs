@@ -304,6 +304,7 @@ fn run(args: &[String]) -> Result<String, String> {
                     .map(|source| match source {
                         opencircuit::DiscoverySource::Ping => "ping",
                         opencircuit::DiscoverySource::TcpConnect => "tcp_connect",
+                        opencircuit::DiscoverySource::Mdns => "mdns",
                         opencircuit::DiscoverySource::ReverseDns => "reverse_dns",
                         opencircuit::DiscoverySource::Aggregated => "aggregated",
                     })

@@ -23,6 +23,7 @@ pub enum DiscoveryStatus {
 pub enum DiscoverySource {
     Ping,
     TcpConnect,
+    Mdns,
     ReverseDns,
     Aggregated,
 }
@@ -165,8 +166,13 @@ pub fn run_discovery(
 ) -> Result<Vec<DeviceRecord>, DiscoveryConfigError> {
     let ping_probe = PingProbe::new(config.timeout);
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
+    let mdns_probe = MdnsProbe::new();
     let dns_probe = ReverseDnsProbe::new();
-    run_discovery_with_probes(config, host_limit, &[&ping_probe, &tcp_probe, &dns_probe])
+    run_discovery_with_probes(
+        config,
+        host_limit,
+        &[&ping_probe, &tcp_probe, &mdns_probe, &dns_probe],
+    )
 }
 
 pub fn run_discovery_with_progress<F>(
@@ -179,11 +185,12 @@ where
 {
     let ping_probe = PingProbe::new(config.timeout);
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
+    let mdns_probe = MdnsProbe::new();
     let dns_probe = ReverseDnsProbe::new();
     run_discovery_with_probes_and_progress(
         config,
         host_limit,
-        &[&ping_probe, &tcp_probe, &dns_probe],
+        &[&ping_probe, &tcp_probe, &mdns_probe, &dns_probe],
         &mut on_progress,
     )
 }
@@ -406,6 +413,82 @@ impl<E: PingExecutor + Sync> Probe for PingProbe<E> {
     }
 }
 
+pub trait MdnsLookup {
+    fn lookup(&self, ip: Ipv4Addr) -> Option<String>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemMdnsLookup;
+
+impl MdnsLookup for SystemMdnsLookup {
+    fn lookup(&self, ip: Ipv4Addr) -> Option<String> {
+        let output = Command::new("avahi-resolve-address")
+            .args(["-4", &ip.to_string()])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let text = String::from_utf8(output.stdout).ok()?;
+        let line = text.lines().next()?.trim();
+        let (_addr, hostname) = line.split_once('\t')?;
+        let name = hostname.trim().trim_end_matches('.').to_string();
+
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MdnsProbe<L: MdnsLookup = SystemMdnsLookup> {
+    resolver: L,
+}
+
+impl MdnsProbe<SystemMdnsLookup> {
+    pub fn new() -> Self {
+        Self {
+            resolver: SystemMdnsLookup,
+        }
+    }
+}
+
+impl<L: MdnsLookup> MdnsProbe<L> {
+    pub fn with_resolver(resolver: L) -> Self {
+        Self { resolver }
+    }
+}
+
+impl<L: MdnsLookup + Sync> Probe for MdnsProbe<L> {
+    fn name(&self) -> &'static str {
+        "mdns"
+    }
+
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
+        let hostname = self.resolver.lookup(ip);
+
+        ProbeResult {
+            ip,
+            status: if hostname.is_some() {
+                DiscoveryStatus::Up
+            } else {
+                DiscoveryStatus::Unknown
+            },
+            source: DiscoverySource::Mdns,
+            hostname,
+            latency_ms: None,
+            open_ports: Vec::new(),
+            observed_at: SystemTime::now(),
+        }
+    }
+}
+
 pub trait ReverseLookup {
     fn lookup(&self, ip: Ipv4Addr) -> Option<String>;
 }
@@ -477,6 +560,7 @@ pub fn aggregate_probe_results(results: &[ProbeResult]) -> Vec<DeviceRecord> {
         let mut status = DiscoveryStatus::Down;
         let mut hostname: Option<String> = None;
         let mut hostname_source: Option<DiscoverySource> = None;
+        let mut hostname_rank = u8::MAX;
         let mut latency_ms: Option<u32> = None;
         let mut open_ports: Vec<u16> = Vec::new();
         let mut sources: Vec<DiscoverySource> = Vec::new();
@@ -486,10 +570,12 @@ pub fn aggregate_probe_results(results: &[ProbeResult]) -> Vec<DeviceRecord> {
         for result in group {
             status = merge_status(&status, &result.status);
 
-            if hostname.is_none() {
-                if let Some(name) = result.hostname.as_ref().filter(|n| !n.trim().is_empty()) {
+            if let Some(name) = result.hostname.as_ref().filter(|n| !n.trim().is_empty()) {
+                let rank = hostname_source_rank(&result.source);
+                if hostname.is_none() || rank < hostname_rank {
                     hostname = Some(name.clone());
                     hostname_source = Some(result.source.clone());
+                    hostname_rank = rank;
                 }
             }
 
@@ -547,7 +633,18 @@ fn source_rank(source: &DiscoverySource) -> u8 {
     match source {
         DiscoverySource::Ping => 0,
         DiscoverySource::TcpConnect => 1,
-        DiscoverySource::ReverseDns => 2,
-        DiscoverySource::Aggregated => 3,
+        DiscoverySource::Mdns => 2,
+        DiscoverySource::ReverseDns => 3,
+        DiscoverySource::Aggregated => 4,
+    }
+}
+
+fn hostname_source_rank(source: &DiscoverySource) -> u8 {
+    match source {
+        DiscoverySource::Mdns => 0,
+        DiscoverySource::ReverseDns => 1,
+        DiscoverySource::TcpConnect => 2,
+        DiscoverySource::Ping => 3,
+        DiscoverySource::Aggregated => 4,
     }
 }
