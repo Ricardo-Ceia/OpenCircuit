@@ -9,7 +9,7 @@ use opencircuit::{
     total_address_count, usable_host_count, usable_host_range, wildcard_mask, TcpConnectProbe,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--compact] [--all] [--no-dns]";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -236,11 +236,12 @@ fn run(args: &[String]) -> Result<String, String> {
                 return Err(String::from(USAGE));
             }
 
-            let mut show_all = false;
+            let mut compact = false;
             let mut no_dns = false;
             for flag in &args[3..] {
                 match flag.as_str() {
-                    "--all" => show_all = true,
+                    "--compact" => compact = true,
+                    "--all" => compact = false,
                     "--no-dns" => no_dns = true,
                     _ => return Err(String::from(USAGE)),
                 }
@@ -269,9 +270,7 @@ fn run(args: &[String]) -> Result<String, String> {
             };
             let elapsed_ms = started.elapsed().as_millis();
 
-            let displayed_records: Vec<opencircuit::DeviceRecord> = if show_all {
-                records.clone()
-            } else {
+            let displayed_records: Vec<opencircuit::DeviceRecord> = if compact {
                 records
                     .iter()
                     .filter(|record| {
@@ -281,6 +280,8 @@ fn run(args: &[String]) -> Result<String, String> {
                     })
                     .cloned()
                     .collect()
+            } else {
+                records.clone()
             };
 
             let mut lines = Vec::with_capacity(displayed_records.len() + 1);
