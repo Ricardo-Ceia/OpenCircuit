@@ -567,6 +567,8 @@ fn scan_command_outputs_header_and_records() {
     assert!(stdout.contains("ip=127.0.0.1"));
     assert!(stdout.contains("ip=127.0.0.2"));
     assert!(stdout.contains("hostname_source="));
+    assert!(stdout.contains("hostname_confidence="));
+    assert!(stdout.contains("mac="));
     assert!(String::from_utf8_lossy(&output.stderr).contains("[scan] probing"));
 }
 
