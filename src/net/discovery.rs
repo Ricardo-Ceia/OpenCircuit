@@ -3,6 +3,7 @@ use std::fmt;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -348,6 +349,8 @@ impl PingExecutor for SystemPingExecutor {
         let timeout_secs = timeout.as_secs().max(1).to_string();
         let status = Command::new("ping")
             .args(["-c", "1", "-W", &timeout_secs, &ip.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status();
 
         match status {
