@@ -3,8 +3,8 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use opencircuit::{
-    run_discovery_with_probes, DiscoveryConfig, DiscoveryConfigError, DiscoverySource,
-    DiscoveryStatus, Probe,
+    run_discovery_with_probes, run_discovery_with_probes_and_progress, DiscoveryConfig,
+    DiscoveryConfigError, DiscoverySource, DiscoveryStatus, Probe,
 };
 
 #[derive(Debug, Clone)]
@@ -124,5 +124,36 @@ fn run_discovery_with_probes_enforces_host_limit() {
             limit: 50,
             actual: 254
         })
+    );
+}
+
+#[test]
+fn run_discovery_with_progress_reports_each_host_once() {
+    let config = DiscoveryConfig {
+        cidr: String::from("192.168.1.0/30"),
+        ports: vec![80],
+        timeout: Duration::from_millis(50),
+        concurrency: 2,
+        retries: 0,
+    };
+    let tcp = FakeTcpProbe {
+        up_hosts: vec![Ipv4Addr::new(192, 168, 1, 1)],
+    };
+
+    let mut progress_events: Vec<(usize, usize, Ipv4Addr)> = Vec::new();
+    let mut callback = |current: usize, total: usize, ip: Ipv4Addr| {
+        progress_events.push((current, total, ip));
+    };
+
+    let records = run_discovery_with_probes_and_progress(&config, 10, &[&tcp], &mut callback)
+        .expect("discovery should succeed");
+
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        progress_events,
+        vec![
+            (1, 2, Ipv4Addr::new(192, 168, 1, 1)),
+            (2, 2, Ipv4Addr::new(192, 168, 1, 2))
+        ]
     );
 }

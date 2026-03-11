@@ -1,11 +1,12 @@
 use std::env;
 use std::net::Ipv4Addr;
+use std::time::Instant;
 
 use opencircuit::{
     cidr_contains, is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4,
     is_usable_host, network_bounds, next_ipv4, parse_and_normalize_cidr, parse_cidr, prev_ipv4,
-    run_discovery, subnet_mask, total_address_count, usable_host_count, usable_host_range,
-    wildcard_mask,
+    run_discovery_with_progress, subnet_mask, total_address_count, usable_host_count,
+    usable_host_range, wildcard_mask,
 };
 
 const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr>";
@@ -239,14 +240,20 @@ fn run(args: &[String]) -> Result<String, String> {
                 cidr: args[2].clone(),
                 ..opencircuit::DiscoveryConfig::default()
             };
-            let records =
-                run_discovery(&config, 1024).map_err(|err| format!("Scan failed: {err}"))?;
+            let started = Instant::now();
+            let mut progress_callback = |current: usize, total: usize, ip: Ipv4Addr| {
+                eprintln!("[scan] probing {current}/{total}: {ip}");
+            };
+            let records = run_discovery_with_progress(&config, 1024, &mut progress_callback)
+                .map_err(|err| format!("Scan failed: {err}"))?;
+            let elapsed_ms = started.elapsed().as_millis();
 
             let mut lines = Vec::with_capacity(records.len() + 1);
             lines.push(format!(
-                "scanned_hosts={} records={}",
+                "scanned_hosts={} records={} elapsed_ms={}",
                 records.len(),
-                records.len()
+                records.len(),
+                elapsed_ms
             ));
 
             for record in records {

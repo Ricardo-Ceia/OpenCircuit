@@ -561,8 +561,9 @@ fn scan_command_outputs_header_and_records() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("scanned_hosts="));
     assert!(stdout.contains("records="));
+    assert!(stdout.contains("elapsed_ms="));
     assert!(stdout.contains("ip=127.0.0.1"));
-    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[scan] probing"));
 }
 
 #[test]

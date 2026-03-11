@@ -162,16 +162,48 @@ pub fn run_discovery(
     run_discovery_with_probes(config, host_limit, &[&tcp_probe, &dns_probe])
 }
 
+pub fn run_discovery_with_progress<F>(
+    config: &DiscoveryConfig,
+    host_limit: u64,
+    mut on_progress: F,
+) -> Result<Vec<DeviceRecord>, DiscoveryConfigError>
+where
+    F: FnMut(usize, usize, Ipv4Addr),
+{
+    let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
+    let dns_probe = ReverseDnsProbe::new();
+    run_discovery_with_probes_and_progress(
+        config,
+        host_limit,
+        &[&tcp_probe, &dns_probe],
+        &mut on_progress,
+    )
+}
+
 pub fn run_discovery_with_probes(
     config: &DiscoveryConfig,
     host_limit: u64,
     probes: &[&dyn Probe],
 ) -> Result<Vec<DeviceRecord>, DiscoveryConfigError> {
+    run_discovery_with_probes_and_progress(config, host_limit, probes, &mut |_, _, _| {})
+}
+
+pub fn run_discovery_with_probes_and_progress<F>(
+    config: &DiscoveryConfig,
+    host_limit: u64,
+    probes: &[&dyn Probe],
+    on_progress: &mut F,
+) -> Result<Vec<DeviceRecord>, DiscoveryConfigError>
+where
+    F: FnMut(usize, usize, Ipv4Addr),
+{
     validate_config(config)?;
     let hosts = expand_target_hosts(config, host_limit)?;
+    let total_hosts = hosts.len();
 
     let mut probe_results: Vec<ProbeResult> = Vec::new();
-    for ip in hosts {
+    for (index, ip) in hosts.into_iter().enumerate() {
+        on_progress(index + 1, total_hosts, ip);
         for probe in probes {
             probe_results.push(probe.probe_host(ip));
         }
