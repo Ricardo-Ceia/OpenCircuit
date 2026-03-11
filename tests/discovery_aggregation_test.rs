@@ -83,6 +83,15 @@ fn status_latency_and_sources_follow_precedence_and_dedup_rules() {
     let results = vec![
         ProbeResult {
             ip,
+            status: DiscoveryStatus::Unknown,
+            source: DiscoverySource::Ping,
+            hostname: None,
+            latency_ms: None,
+            open_ports: vec![],
+            observed_at: t,
+        },
+        ProbeResult {
+            ip,
             status: DiscoveryStatus::Down,
             source: DiscoverySource::TcpConnect,
             hostname: None,
@@ -120,6 +129,7 @@ fn status_latency_and_sources_follow_precedence_and_dedup_rules() {
     assert_eq!(
         record.sources,
         vec![
+            DiscoverySource::Ping,
             DiscoverySource::TcpConnect,
             DiscoverySource::ReverseDns,
             DiscoverySource::Aggregated

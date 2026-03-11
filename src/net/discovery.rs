@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -19,6 +20,7 @@ pub enum DiscoveryStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoverySource {
+    Ping,
     TcpConnect,
     ReverseDns,
     Aggregated,
@@ -159,9 +161,10 @@ pub fn run_discovery(
     config: &DiscoveryConfig,
     host_limit: u64,
 ) -> Result<Vec<DeviceRecord>, DiscoveryConfigError> {
+    let ping_probe = PingProbe::new(config.timeout);
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
     let dns_probe = ReverseDnsProbe::new();
-    run_discovery_with_probes(config, host_limit, &[&tcp_probe, &dns_probe])
+    run_discovery_with_probes(config, host_limit, &[&ping_probe, &tcp_probe, &dns_probe])
 }
 
 pub fn run_discovery_with_progress<F>(
@@ -172,12 +175,13 @@ pub fn run_discovery_with_progress<F>(
 where
     F: FnMut(usize, usize, Ipv4Addr),
 {
+    let ping_probe = PingProbe::new(config.timeout);
     let tcp_probe = TcpConnectProbe::new(config.ports.clone(), config.timeout);
     let dns_probe = ReverseDnsProbe::new();
     run_discovery_with_probes_and_progress(
         config,
         host_limit,
-        &[&tcp_probe, &dns_probe],
+        &[&ping_probe, &tcp_probe, &dns_probe],
         &mut on_progress,
     )
 }
@@ -332,6 +336,72 @@ impl Probe for TcpConnectProbe {
     }
 }
 
+pub trait PingExecutor {
+    fn ping(&self, ip: Ipv4Addr, timeout: Duration) -> bool;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemPingExecutor;
+
+impl PingExecutor for SystemPingExecutor {
+    fn ping(&self, ip: Ipv4Addr, timeout: Duration) -> bool {
+        let timeout_secs = timeout.as_secs().max(1).to_string();
+        let status = Command::new("ping")
+            .args(["-c", "1", "-W", &timeout_secs, &ip.to_string()])
+            .status();
+
+        match status {
+            Ok(exit) => exit.success(),
+            Err(_) => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PingProbe<E: PingExecutor = SystemPingExecutor> {
+    timeout: Duration,
+    executor: E,
+}
+
+impl PingProbe<SystemPingExecutor> {
+    pub fn new(timeout: Duration) -> Self {
+        Self {
+            timeout,
+            executor: SystemPingExecutor,
+        }
+    }
+}
+
+impl<E: PingExecutor> PingProbe<E> {
+    pub fn with_executor(timeout: Duration, executor: E) -> Self {
+        Self { timeout, executor }
+    }
+}
+
+impl<E: PingExecutor + Sync> Probe for PingProbe<E> {
+    fn name(&self) -> &'static str {
+        "ping"
+    }
+
+    fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult {
+        let reachable = self.executor.ping(ip, self.timeout);
+
+        ProbeResult {
+            ip,
+            status: if reachable {
+                DiscoveryStatus::Up
+            } else {
+                DiscoveryStatus::Unknown
+            },
+            source: DiscoverySource::Ping,
+            hostname: None,
+            latency_ms: None,
+            open_ports: Vec::new(),
+            observed_at: SystemTime::now(),
+        }
+    }
+}
+
 pub trait ReverseLookup {
     fn lookup(&self, ip: Ipv4Addr) -> Option<String>;
 }
@@ -468,8 +538,9 @@ fn merge_status(current: &DiscoveryStatus, next: &DiscoveryStatus) -> DiscoveryS
 
 fn source_rank(source: &DiscoverySource) -> u8 {
     match source {
-        DiscoverySource::TcpConnect => 0,
-        DiscoverySource::ReverseDns => 1,
-        DiscoverySource::Aggregated => 2,
+        DiscoverySource::Ping => 0,
+        DiscoverySource::TcpConnect => 1,
+        DiscoverySource::ReverseDns => 2,
+        DiscoverySource::Aggregated => 3,
     }
 }
