@@ -564,8 +564,12 @@ fn scan_command_outputs_header_and_records() {
     assert!(stdout.contains("records="));
     assert!(stdout.contains("shown="));
     assert!(stdout.contains("elapsed_ms="));
+    assert!(stdout.contains("gateway_ip="));
+    assert!(stdout.contains("gateway_iface="));
+    assert!(stdout.contains("gateway_neighbors="));
     assert!(stdout.contains("ip=127.0.0.1"));
     assert!(stdout.contains("ip=127.0.0.2"));
+    assert!(stdout.contains("connectivity_source="));
     assert!(stdout.contains("hostname_source="));
     assert!(stdout.contains("hostname_confidence="));
     assert!(stdout.contains("mac="));

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
@@ -433,7 +433,15 @@ fn run(args: &[String]) -> Result<String, String> {
             let elapsed_ms = started.elapsed().as_millis();
 
             let now_unix_s = unix_now_secs();
-            let neighbor_macs = load_neighbor_mac_map();
+            let (default_gateway, default_interface) = load_default_route();
+            let neighbor_macs = load_neighbor_mac_map(default_interface.as_deref());
+            let (target_ip, target_prefix) = parse_cidr(&config.cidr)
+                .map_err(|err| format!("Scan failed: Invalid CIDR: {err}"))?;
+            let gateway_neighbors: HashSet<Ipv4Addr> = neighbor_macs
+                .keys()
+                .copied()
+                .filter(|ip| cidr_contains(target_ip, target_prefix, *ip).unwrap_or(false))
+                .collect();
             let mut seen_records =
                 load_seen_records(&state_file).map_err(|err| format!("Scan failed: {err}"))?;
             update_seen_records(&mut seen_records, &records, now_unix_s, &neighbor_macs);
@@ -442,13 +450,19 @@ fn run(args: &[String]) -> Result<String, String> {
             }
 
             let recent_window_s = recent_minutes.saturating_mul(60);
-            let mut displayed_records: Vec<(opencircuit::DeviceRecord, Presence, Option<String>)> =
-                Vec::new();
+            let mut displayed_records: Vec<(
+                opencircuit::DeviceRecord,
+                Presence,
+                Option<String>,
+                &'static str,
+            )> = Vec::new();
 
             for record in &records {
                 let cached = seen_records.iter().find(|entry| entry.ip == record.ip);
 
-                let presence = if record.status == opencircuit::DiscoveryStatus::Up {
+                let gateway_seen = gateway_neighbors.contains(&record.ip);
+                let presence = if record.status == opencircuit::DiscoveryStatus::Up || gateway_seen
+                {
                     Presence::Online
                 } else if recent_window_s > 0
                     && cached
@@ -479,22 +493,39 @@ fn run(args: &[String]) -> Result<String, String> {
                     .get(&record.ip)
                     .cloned()
                     .or_else(|| cached.and_then(|entry| entry.mac.clone()));
+                let connectivity_source =
+                    if record.status == opencircuit::DiscoveryStatus::Up && gateway_seen {
+                        "both"
+                    } else if record.status == opencircuit::DiscoveryStatus::Up {
+                        "active_probe"
+                    } else if gateway_seen {
+                        "gateway_table"
+                    } else if presence == Presence::RecentlySeen {
+                        "recent_cache"
+                    } else {
+                        "none"
+                    };
                 if show_all || presence != Presence::Offline {
-                    displayed_records.push((merged, presence, mac));
+                    displayed_records.push((merged, presence, mac, connectivity_source));
                 }
             }
 
             let mut lines = Vec::with_capacity(displayed_records.len() + 1);
             lines.push(format!(
-                "scanned_hosts={} records={} shown={} elapsed_ms={} recent_minutes={}",
+                "scanned_hosts={} records={} shown={} elapsed_ms={} recent_minutes={} gateway_ip={} gateway_iface={} gateway_neighbors={}",
                 records.len(),
                 records.len(),
                 displayed_records.len(),
                 elapsed_ms,
-                recent_minutes
+                recent_minutes,
+                default_gateway
+                    .map(|ip| ip.to_string())
+                    .unwrap_or_else(|| String::from("-")),
+                default_interface.unwrap_or_else(|| String::from("-")),
+                gateway_neighbors.len()
             ));
 
-            for (record, presence, mac) in displayed_records {
+            for (record, presence, mac, connectivity_source) in displayed_records {
                 let status = match record.status {
                     opencircuit::DiscoveryStatus::Up => "up",
                     opencircuit::DiscoveryStatus::Down => "down",
@@ -529,10 +560,11 @@ fn run(args: &[String]) -> Result<String, String> {
                 let mac_display = mac.unwrap_or_else(|| String::from("-"));
 
                 lines.push(format!(
-                    "ip={} status={} presence={} hostname={} hostname_source={} hostname_confidence={} mac={} open_ports={}",
+                    "ip={} status={} presence={} connectivity_source={} hostname={} hostname_source={} hostname_confidence={} mac={} open_ports={}",
                     record.ip,
                     status,
                     presence.as_str(),
+                    connectivity_source,
                     hostname,
                     hostname_source,
                     hostname_confidence,
@@ -634,9 +666,54 @@ fn normalize_mac(raw: &str) -> Option<String> {
     }
 }
 
-fn load_neighbor_mac_map() -> HashMap<Ipv4Addr, String> {
+fn load_default_route() -> (Option<Ipv4Addr>, Option<String>) {
     let output = Command::new("ip")
-        .args(["neigh"])
+        .args(["route"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let Ok(output) = output else {
+        return (None, None);
+    };
+    if !output.status.success() {
+        return (None, None);
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("default") {
+            continue;
+        }
+
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        let mut gateway = None;
+        let mut iface = None;
+        for idx in 0..tokens.len() {
+            if tokens[idx] == "via" && idx + 1 < tokens.len() {
+                gateway = tokens[idx + 1].parse::<Ipv4Addr>().ok();
+            }
+            if tokens[idx] == "dev" && idx + 1 < tokens.len() {
+                iface = Some(tokens[idx + 1].to_string());
+            }
+        }
+
+        return (gateway, iface);
+    }
+
+    (None, None)
+}
+
+fn load_neighbor_mac_map(interface: Option<&str>) -> HashMap<Ipv4Addr, String> {
+    let mut command = Command::new("ip");
+    if let Some(interface) = interface {
+        command.args(["neigh", "show", "dev", interface]);
+    } else {
+        command.args(["neigh"]);
+    }
+
+    let output = command
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output();
