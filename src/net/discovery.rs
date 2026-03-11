@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+use std::thread;
 use std::time::{Duration, SystemTime};
 
 use dns_lookup::lookup_addr;
@@ -148,7 +149,7 @@ pub fn expand_target_hosts(
     Ok(hosts)
 }
 
-pub trait Probe {
+pub trait Probe: Sync {
     fn name(&self) -> &'static str;
     fn probe_host(&self, ip: Ipv4Addr) -> ProbeResult;
 }
@@ -201,13 +202,54 @@ where
     let hosts = expand_target_hosts(config, host_limit)?;
     let total_hosts = hosts.len();
 
-    let mut probe_results: Vec<ProbeResult> = Vec::new();
-    for (index, ip) in hosts.into_iter().enumerate() {
-        on_progress(index + 1, total_hosts, ip);
-        for probe in probes {
-            probe_results.push(probe.probe_host(ip));
-        }
+    if total_hosts == 0 {
+        return Ok(Vec::new());
     }
+
+    for (index, ip) in hosts.iter().copied().enumerate() {
+        on_progress(index + 1, total_hosts, ip);
+    }
+
+    let worker_count = config.concurrency.clamp(1, total_hosts);
+    let mut probe_results: Vec<ProbeResult> = Vec::new();
+
+    if worker_count == 1 {
+        for ip in hosts {
+            for probe in probes {
+                probe_results.push(probe.probe_host(ip));
+            }
+        }
+        return Ok(aggregate_probe_results(&probe_results));
+    }
+
+    thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+
+        for worker_index in 0..worker_count {
+            let worker_hosts: Vec<Ipv4Addr> = hosts
+                .iter()
+                .copied()
+                .skip(worker_index)
+                .step_by(worker_count)
+                .collect();
+
+            handles.push(scope.spawn(move || {
+                let mut local_results: Vec<ProbeResult> = Vec::new();
+                for ip in worker_hosts {
+                    for probe in probes {
+                        local_results.push(probe.probe_host(ip));
+                    }
+                }
+                local_results
+            }));
+        }
+
+        for handle in handles {
+            if let Ok(mut local_results) = handle.join() {
+                probe_results.append(&mut local_results);
+            }
+        }
+    });
 
     Ok(aggregate_probe_results(&probe_results))
 }
@@ -314,7 +356,7 @@ impl<L: ReverseLookup> ReverseDnsProbe<L> {
     }
 }
 
-impl<L: ReverseLookup> Probe for ReverseDnsProbe<L> {
+impl<L: ReverseLookup + Sync> Probe for ReverseDnsProbe<L> {
     fn name(&self) -> &'static str {
         "reverse_dns"
     }

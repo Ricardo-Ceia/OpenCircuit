@@ -157,3 +157,30 @@ fn run_discovery_with_progress_reports_each_host_once() {
         ]
     );
 }
+
+#[test]
+fn discovery_results_match_between_sequential_and_parallel_modes() {
+    let config = DiscoveryConfig {
+        cidr: String::from("192.168.1.0/29"),
+        ports: vec![80],
+        timeout: Duration::from_millis(50),
+        concurrency: 1,
+        retries: 0,
+    };
+    let tcp = FakeTcpProbe {
+        up_hosts: vec![Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(192, 168, 1, 3)],
+    };
+    let mut hostnames = HashMap::new();
+    hostnames.insert(Ipv4Addr::new(192, 168, 1, 2), String::from("sensor.local"));
+    let dns = FakeDnsProbe { hostnames };
+
+    let sequential = run_discovery_with_probes(&config, 20, &[&tcp, &dns])
+        .expect("sequential discovery should succeed");
+
+    let mut parallel_config = config.clone();
+    parallel_config.concurrency = 4;
+    let parallel = run_discovery_with_probes(&parallel_config, 20, &[&tcp, &dns])
+        .expect("parallel discovery should succeed");
+
+    assert_eq!(sequential, parallel);
+}
