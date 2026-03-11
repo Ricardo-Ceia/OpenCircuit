@@ -9,7 +9,7 @@ use opencircuit::{
     total_address_count, usable_host_count, usable_host_range, wildcard_mask, TcpConnectProbe,
 };
 
-const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>]";
+const USAGE: &str = "Usage:\n  opencircuit normalize <ipv4-cidr>\n  opencircuit info <ipv4-cidr>\n  opencircuit contains <ipv4-cidr> <ipv4-address>\n  opencircuit usable <ipv4-cidr> <ipv4-address>\n  opencircuit next <ipv4-address>\n  opencircuit prev <ipv4-address>\n  opencircuit classify <ipv4-address>\n  opencircuit classify-cidr <ipv4-cidr>\n  opencircuit summary <ipv4-cidr>\n  opencircuit masks <ipv4-cidr>\n  opencircuit range <ipv4-cidr>\n  opencircuit overlap <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit relation <ipv4-cidr-a> <ipv4-cidr-b>\n  opencircuit scan <ipv4-cidr> [--all] [--no-dns] [--deep|--balanced|--fast] [--ports <csv>] [--timeout-ms <n>] [--concurrency <n>]";
 
 fn run(args: &[String]) -> Result<String, String> {
     if args.len() < 2 {
@@ -236,12 +236,23 @@ fn run(args: &[String]) -> Result<String, String> {
                 return Err(String::from(USAGE));
             }
 
+            #[derive(Clone, Copy, PartialEq, Eq)]
+            enum ScanProfile {
+                Fast,
+                Balanced,
+                Deep,
+            }
+
             let mut config = opencircuit::DiscoveryConfig {
                 cidr: args[2].clone(),
                 ..opencircuit::DiscoveryConfig::default()
             };
             let mut show_all = false;
             let mut no_dns = false;
+            let mut selected_profile: Option<ScanProfile> = None;
+            let mut override_ports: Option<Vec<u16>> = None;
+            let mut override_timeout_ms: Option<u64> = None;
+            let mut override_concurrency: Option<usize> = None;
             let mut i = 3usize;
             while i < args.len() {
                 match args[i].as_str() {
@@ -256,11 +267,32 @@ fn run(args: &[String]) -> Result<String, String> {
                         no_dns = true;
                         i += 1;
                     }
+                    "--fast" => {
+                        if selected_profile.is_some() {
+                            return Err(String::from("Only one scan profile can be selected"));
+                        }
+                        selected_profile = Some(ScanProfile::Fast);
+                        i += 1;
+                    }
+                    "--balanced" => {
+                        if selected_profile.is_some() {
+                            return Err(String::from("Only one scan profile can be selected"));
+                        }
+                        selected_profile = Some(ScanProfile::Balanced);
+                        i += 1;
+                    }
+                    "--deep" => {
+                        if selected_profile.is_some() {
+                            return Err(String::from("Only one scan profile can be selected"));
+                        }
+                        selected_profile = Some(ScanProfile::Deep);
+                        i += 1;
+                    }
                     "--ports" => {
                         if i + 1 >= args.len() {
                             return Err(String::from("Missing value for --ports"));
                         }
-                        config.ports = parse_ports_csv(&args[i + 1])?;
+                        override_ports = Some(parse_ports_csv(&args[i + 1])?);
                         i += 2;
                     }
                     "--timeout-ms" => {
@@ -273,7 +305,7 @@ fn run(args: &[String]) -> Result<String, String> {
                         if timeout_ms == 0 {
                             return Err(String::from("--timeout-ms must be greater than zero"));
                         }
-                        config.timeout = Duration::from_millis(timeout_ms);
+                        override_timeout_ms = Some(timeout_ms);
                         i += 2;
                     }
                     "--concurrency" => {
@@ -286,11 +318,43 @@ fn run(args: &[String]) -> Result<String, String> {
                         if concurrency == 0 {
                             return Err(String::from("--concurrency must be greater than zero"));
                         }
-                        config.concurrency = concurrency;
+                        override_concurrency = Some(concurrency);
                         i += 2;
                     }
                     _ => return Err(String::from(USAGE)),
                 }
+            }
+
+            let profile = selected_profile.unwrap_or(ScanProfile::Deep);
+            match profile {
+                ScanProfile::Fast => {
+                    config.timeout = Duration::from_millis(250);
+                    config.concurrency = 128;
+                    config.ports = vec![53, 80, 443];
+                }
+                ScanProfile::Balanced => {
+                    config.timeout = Duration::from_millis(500);
+                    config.concurrency = 64;
+                    config.ports = vec![22, 53, 80, 139, 443, 445, 8008, 8009, 8080];
+                }
+                ScanProfile::Deep => {
+                    config.timeout = Duration::from_millis(1000);
+                    config.concurrency = 96;
+                    config.ports = vec![
+                        22, 53, 80, 123, 139, 443, 445, 554, 631, 1900, 5000, 7000, 7100, 8008,
+                        8009, 8080, 8443, 8888, 62078,
+                    ];
+                }
+            }
+
+            if let Some(ports) = override_ports {
+                config.ports = ports;
+            }
+            if let Some(timeout_ms) = override_timeout_ms {
+                config.timeout = Duration::from_millis(timeout_ms);
+            }
+            if let Some(concurrency) = override_concurrency {
+                config.concurrency = concurrency;
             }
 
             let started = Instant::now();

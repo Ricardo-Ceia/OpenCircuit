@@ -644,6 +644,30 @@ fn scan_command_accepts_custom_scan_tuning_flags() {
 }
 
 #[test]
+fn scan_command_accepts_explicit_fast_profile() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--fast", "--no-dns"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("scanned_hosts="));
+}
+
+#[test]
+fn scan_command_rejects_multiple_profiles() {
+    let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
+        .args(["scan", "127.0.0.0/30", "--fast", "--deep"])
+        .output()
+        .expect("failed to run opencircuit binary");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Only one scan profile can be selected")
+    );
+}
+
+#[test]
 fn scan_command_rejects_invalid_ports_flag() {
     let output = Command::new(env!("CARGO_BIN_EXE_opencircuit"))
         .args(["scan", "127.0.0.0/30", "--ports", "22,abc"])
