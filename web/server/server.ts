@@ -1,4 +1,7 @@
 import { serve } from "bun";
+import { initDatabase } from "./database.ts";
+
+const db = initDatabase("scanner.db");
 
 const modules = new Map<string, WebSocket>();
 
