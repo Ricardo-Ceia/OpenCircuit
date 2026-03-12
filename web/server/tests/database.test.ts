@@ -1,6 +1,7 @@
 import { expect, test, describe, beforeEach } from "bun:test";
-import { initDatabase, insertScan, upsertDevices, cleanOldScans } from "../database.ts";
-import type { Database } from "bun:sqlite";
+import { Scanner } from "../database.ts";
+
+let scanner: Scanner;
 
 const fakeHosts = [
   {
@@ -27,94 +28,98 @@ const fakeHosts = [
   },
 ];
 
-let db: Database;
-
 beforeEach(() => {
-  db = initDatabase(":memory:");
+  scanner = new Scanner(":memory:");
 });
 
 describe("insertScan", () => {
   test("inserts one row into scans", () => {
-    insertScan(db, "home-001", fakeHosts);
-    const rows = db.query("SELECT * FROM scans").all();
+    scanner.insertScan("home-001", fakeHosts);
+    const rows = scanner.getScans("home-001");
     expect(rows.length).toBe(1);
   });
 
   test("stores correct device_id", () => {
-    insertScan(db, "home-001", fakeHosts);
-    const row = db.query("SELECT * FROM scans").get() as any;
+    scanner.insertScan("home-001", fakeHosts);
+    const row = scanner.getScans("home-001")[0] as any;
     expect(row.device_id).toBe("home-001");
   });
 
   test("stores hosts as valid JSON", () => {
-    insertScan(db, "home-001", fakeHosts);
-    const row = db.query("SELECT * FROM scans").get() as any;
+    scanner.insertScan("home-001", fakeHosts);
+    const row = scanner.getScans("home-001")[0] as any;
     const parsed = JSON.parse(row.summary);
     expect(parsed.length).toBe(2);
     expect(parsed[0].ip).toBe("192.168.1.1");
   });
 
   test("stores a valid timestamp", () => {
-    insertScan(db, "home-001", fakeHosts);
-    const row = db.query("SELECT * FROM scans").get() as any;
+    scanner.insertScan("home-001", fakeHosts);
+    const row = scanner.getScans("home-001")[0] as any;
     const date = new Date(row.scanned_at);
     expect(date.toString()).not.toBe("Invalid Date");
   });
 
   test("multiple scans create multiple rows", () => {
-    insertScan(db, "home-001", fakeHosts);
-    insertScan(db, "home-001", fakeHosts);
-    const rows = db.query("SELECT * FROM scans").all();
+    scanner.insertScan("home-001", fakeHosts);
+    scanner.insertScan("home-001", fakeHosts);
+    const rows = scanner.getScans("home-001");
     expect(rows.length).toBe(2);
   });
 
   test("scans from different modules are stored separately", () => {
-    insertScan(db, "home-001", fakeHosts);
-    insertScan(db, "home-002", fakeHosts);
-    const rows = db.query("SELECT * FROM scans").all();
-    expect(rows.length).toBe(2);
+    scanner.insertScan("home-001", fakeHosts);
+    scanner.insertScan("home-002", fakeHosts);
+    const rowsHome1 = scanner.getScans("home-001");
+    const rowsHome2 = scanner.getScans("home-002");
+    expect(rowsHome1.length).toBe(1);
+    expect(rowsHome2.length).toBe(1);
   });
 });
 
 describe("upsertDevices", () => {
   test("inserts one row per host", () => {
-    upsertDevices(db, "home-001", fakeHosts);
-    const rows = db.query("SELECT * FROM devices").all();
+    scanner.upsertDevices("home-001", fakeHosts);
+    const rows = scanner.getDevices("home-001");
     expect(rows.length).toBe(2);
   });
 
   test("does not duplicate on second upsert", () => {
-    upsertDevices(db, "home-001", fakeHosts);
-    upsertDevices(db, "home-001", fakeHosts);
-    const rows = db.query("SELECT * FROM devices").all();
+    scanner.upsertDevices("home-001", fakeHosts);
+    scanner.upsertDevices("home-001", fakeHosts);
+    const rows = scanner.getDevices("home-001");
     expect(rows.length).toBe(2);
   });
 
   test("updates existing row on conflict", () => {
-    upsertDevices(db, "home-001", fakeHosts);
+    scanner.upsertDevices("home-001", fakeHosts);
     const updated = [{ ...fakeHosts[0], status: "down", hostname: "updated-router" }];
-    upsertDevices(db, "home-001", updated);
-    const row = db.query("SELECT * FROM devices WHERE ip = '192.168.1.1'").get() as any;
+    scanner.upsertDevices("home-001", updated);
+    const rows = scanner.getDevices("home-001") as any[];
+    const row = rows.find(r => r.ip === "192.168.1.1");
     expect(row.status).toBe("down");
     expect(row.hostname).toBe("updated-router");
   });
 
   test("stores correct device_id per host", () => {
-    upsertDevices(db, "home-001", fakeHosts);
-    const rows = db.query("SELECT * FROM devices").all() as any[];
+    scanner.upsertDevices("home-001", fakeHosts);
+    const rows = scanner.getDevices("home-001") as any[];
     expect(rows.every(r => r.device_id === "home-001")).toBe(true);
   });
 
   test("same ip from different modules creates separate rows", () => {
-    upsertDevices(db, "home-001", fakeHosts);
-    upsertDevices(db, "home-002", fakeHosts);
-    const rows = db.query("SELECT * FROM devices").all();
-    expect(rows.length).toBe(4);
+    scanner.upsertDevices("home-001", fakeHosts);
+    scanner.upsertDevices("home-002", fakeHosts);
+    const rowsHome1 = scanner.getDevices("home-001");
+    const rowsHome2 = scanner.getDevices("home-002");
+    expect(rowsHome1.length).toBe(2);
+    expect(rowsHome2.length).toBe(2);
   });
 
   test("stores null for missing optional fields", () => {
-    upsertDevices(db, "home-001", fakeHosts);
-    const row = db.query("SELECT * FROM devices WHERE ip = '192.168.1.2'").get() as any;
+    scanner.upsertDevices("home-001", fakeHosts);
+    const rows = scanner.getDevices("home-001") as any[];
+    const row = rows.find(r => r.ip === "192.168.1.2");
     expect(row.hostname).toBeNull();
     expect(row.open_ports).toBeNull();
   });
@@ -122,49 +127,32 @@ describe("upsertDevices", () => {
 
 describe("cleanOldScans", () => {
   test("does not delete recent scans", () => {
-    insertScan(db, "home-001", fakeHosts);
-    cleanOldScans(db, "home-001");
-    const rows = db.query("SELECT * FROM scans").all();
+    scanner.insertScan("home-001", fakeHosts);
+    scanner.cleanOldScans("home-001");
+    const rows = scanner.getScans("home-001");
     expect(rows.length).toBe(1);
   });
 
   test("deletes scans older than 30 days", () => {
-    const oldTimestamp = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-    db.run("INSERT INTO scans (device_id, scanned_at, summary) VALUES (?, ?, ?)", [
-      "home-001",
-      oldTimestamp,
-      JSON.stringify(fakeHosts),
-    ]);
-    cleanOldScans(db, "home-001");
-    const rows = db.query("SELECT * FROM scans").all();
+    scanner.insertOldScan("home-001", fakeHosts, 31);
+    scanner.cleanOldScans("home-001");
+    const rows = scanner.getScans("home-001");
     expect(rows.length).toBe(0);
   });
 
   test("only deletes scans for the given device_id", () => {
-    const oldTimestamp = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-    db.run("INSERT INTO scans (device_id, scanned_at, summary) VALUES (?, ?, ?)", [
-      "home-001",
-      oldTimestamp,
-      JSON.stringify(fakeHosts),
-    ]);
-    insertScan(db, "home-002", fakeHosts);
-    cleanOldScans(db, "home-001");
-    const rows = db.query("SELECT * FROM scans").all();
+    scanner.insertOldScan("home-001", fakeHosts, 31);
+    scanner.insertScan("home-002", fakeHosts);
+    scanner.cleanOldScans("home-001");
+    const rows = scanner.getScans("home-002");
     expect(rows.length).toBe(1);
-    const remaining = rows[0] as any;
-    expect(remaining.device_id).toBe("home-002");
   });
 
   test("keeps recent scans when old ones are deleted", () => {
-    const oldTimestamp = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
-    db.run("INSERT INTO scans (device_id, scanned_at, summary) VALUES (?, ?, ?)", [
-      "home-001",
-      oldTimestamp,
-      JSON.stringify(fakeHosts),
-    ]);
-    insertScan(db, "home-001", fakeHosts);
-    cleanOldScans(db, "home-001");
-    const rows = db.query("SELECT * FROM scans").all();
+    scanner.insertOldScan("home-001", fakeHosts, 31);
+    scanner.insertScan("home-001", fakeHosts);
+    scanner.cleanOldScans("home-001");
+    const rows = scanner.getScans("home-001");
     expect(rows.length).toBe(1);
   });
 });

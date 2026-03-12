@@ -1,8 +1,7 @@
 import { serve } from "bun";
-import { initDatabase, insertScan, upsertDevices, cleanOldScans } from "./database.ts";
+import { Scanner } from "./database.ts";
 
-const db = initDatabase("scanner.db");
-
+const scanner = new Scanner("scanner.db");
 const modules = new Map<string, WebSocket>();
 
 serve({
@@ -19,7 +18,7 @@ serve({
     },
     message(ws, raw) {
       const msg = JSON.parse(raw as string);
-      console.log("[server] received:", msg);
+      console.log("[server] received:", msg.type);
 
       if (msg.type === "hello") {
         modules.set(msg.deviceId, ws);
@@ -28,11 +27,11 @@ serve({
       }
 
       if (msg.type === "scan_result") {
-        console.log(`[server] scan result from ${msg.deviceId}:`);
-        insertScan(db, msg.deviceId, msg.data); 
-        upsertDevices(db, msg.deviceId, msg.data);
-        cleanOldScans(db, msg.deviceId);
-        console.log(`[server] stored scan result for ${msg.deviceId} in database`);
+        console.log(`[server] scan result from ${msg.deviceId} — ${msg.data.length} hosts`);
+        scanner.insertScan(msg.deviceId, msg.data);
+        scanner.upsertDevices(msg.deviceId, msg.data);
+        scanner.cleanOldScans(msg.deviceId);
+        console.log(`[server] scan persisted for ${msg.deviceId}`);
       }
     },
     close(ws) {
