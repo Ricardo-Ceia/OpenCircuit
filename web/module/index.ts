@@ -16,7 +16,7 @@ function connect() {
       deviceId: DEVICE_ID,
     }));
 
-    let scanInterval = Timer | null = null;
+    let scanInterval: Timer | null = null;
     
     if(scanInterval) clearInterval(scanInterval);
     setInterval(() => {

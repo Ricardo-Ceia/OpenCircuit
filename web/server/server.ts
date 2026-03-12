@@ -1,5 +1,5 @@
 import { serve } from "bun";
-import { initDatabase } from "./database.ts";
+import { initDatabase, insertScan, upsertDevices, cleanOldScans } from "./database.ts";
 
 const db = initDatabase("scanner.db");
 
@@ -29,9 +29,10 @@ serve({
 
       if (msg.type === "scan_result") {
         console.log(`[server] scan result from ${msg.deviceId}:`);
-        for (const host of msg.data) {
-          console.log(`  ${host.ip} | ${host.status} | ${host.hostname}`);
-        }
+        insertScan(db, msg.deviceId, msg.data); 
+        upsertDevices(db, msg.deviceId, msg.data);
+        cleanOldScans(db, msg.deviceId);
+        console.log(`[server] stored scan result for ${msg.deviceId} in database`);
       }
     },
     close(ws) {
