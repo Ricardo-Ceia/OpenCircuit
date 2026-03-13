@@ -488,6 +488,12 @@ pub struct NeighborProbe<L: NeighborLookup = SystemNeighborLookup> {
     refresh_interval: Duration,
 }
 
+impl Default for NeighborProbe<SystemNeighborLookup> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NeighborCache {
     neighbors: HashSet<Ipv4Addr>,
@@ -590,6 +596,12 @@ pub struct MdnsProbe<L: MdnsLookup = SystemMdnsLookup> {
     resolver: L,
 }
 
+impl Default for MdnsProbe<SystemMdnsLookup> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MdnsProbe<SystemMdnsLookup> {
     pub fn new() -> Self {
         Self {
@@ -673,6 +685,12 @@ pub struct NetbiosProbe<L: NetbiosLookup = SystemNetbiosLookup> {
     resolver: L,
 }
 
+impl Default for NetbiosProbe<SystemNetbiosLookup> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetbiosProbe<SystemNetbiosLookup> {
     pub fn new() -> Self {
         Self {
@@ -730,6 +748,12 @@ impl ReverseLookup for SystemReverseLookup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReverseDnsProbe<L: ReverseLookup = SystemReverseLookup> {
     resolver: L,
+}
+
+impl Default for ReverseDnsProbe<SystemReverseLookup> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReverseDnsProbe<SystemReverseLookup> {

@@ -2,17 +2,12 @@ use std::time::Duration;
 
 use crate::DiscoveryConfig;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ScanProfile {
     Fast,
     Balanced,
+    #[default]
     Deep,
-}
-
-impl Default for ScanProfile {
-    fn default() -> Self {
-        Self::Deep
-    }
 }
 
 impl ScanProfile {

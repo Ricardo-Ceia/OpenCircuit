@@ -412,8 +412,8 @@ fn update_seen_cache(
         if let Some(m) = neighbor_macs.get(&record.ip) {
             entry.mac = Some(m.clone());
         }
-        if let Some(lease) = dhcp_leases.get(&record.ip) {
-            if entry.mac.is_none() {
+        if entry.mac.is_none() {
+            if let Some(lease) = dhcp_leases.get(&record.ip) {
                 entry.mac = lease.mac.clone();
             }
         }

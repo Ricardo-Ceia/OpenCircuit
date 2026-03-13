@@ -76,7 +76,7 @@ fn parse_lease_line(line: &str) -> Option<(Ipv4Addr, DhcpLeaseEntry)> {
     }
 
     // Try format: timestamp mac ip [hostname]
-    if let Ok(_) = parts[0].parse::<u64>() {
+    if parts[0].parse::<u64>().is_ok() {
         let mac: Option<String> = normalize_mac(parts[1]);
         let ip: Ipv4Addr = parts[2].parse().ok()?;
         let hostname: Option<String> = if parts.len() >= 4 && parts[3] != "*" {
