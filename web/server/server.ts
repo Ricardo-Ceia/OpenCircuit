@@ -1,15 +1,30 @@
 import { serve } from "bun";
 import { Scanner } from "./database.ts";
+import {Routes} from "./routes.ts";
+
 
 const scanner = new Scanner("scanner.db");
 const modules = new Map<string, WebSocket>();
 
 serve({
   port: 3000,
+   port: 3000,
+  routes: {
+    "/devices/:deviceId": (req, { params }) => {
+      const url = new URL(req.url);
+      const deviceId = url.pathname.split("/")[2];
+      return routes.getDevicesHandler(scanner,deviceId);      
+    },
+    "/scans/:deviceId": (req, { params }) => {
+      const url = new URL(req.url);
+      const deviceId = url.pathname.split("/")[2];
+      return routes.getScansHandler(scanner,deviceId);  
+    },
+  },
   fetch(req, server) {
     const upgraded = server.upgrade(req);
     if (!upgraded) {
-      return new Response("this is a websocket server", { status: 200 });
+      return new Response("not found", { status: 404 });
     }
   },
   websocket: {
