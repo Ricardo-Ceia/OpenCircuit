@@ -1,6 +1,7 @@
-use std::fmt;
-
+pub mod cli;
 pub mod net;
+pub mod scan;
+
 pub use net::address::{
     is_link_local_ipv4, is_loopback_ipv4, is_multicast_ipv4, is_private_ipv4, next_ipv4, prev_ipv4,
 };
@@ -23,6 +24,8 @@ pub use net::math::{
     wildcard_mask,
 };
 
+pub use cli::{is_help_arg, USAGE};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CidrParseError {
     MissingSlash,
@@ -31,8 +34,8 @@ pub enum CidrParseError {
     InvalidSubnetMask,
 }
 
-impl fmt::Display for CidrParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for CidrParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingSlash => write!(f, "CIDR must include '/' separator"),
             Self::InvalidIp => write!(f, "CIDR contains an invalid IPv4 address"),
