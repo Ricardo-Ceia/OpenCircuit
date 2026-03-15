@@ -23,20 +23,20 @@ Examples:
 
 func main() {
 	flag.Usage = func() {
-		fmt.Println(USAGE)
+		fmt.Print(USAGE)
 	}
 
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, USAGE)
+		fmt.Fprint(os.Stderr, USAGE)
 		os.Exit(1)
 	}
 
 	switch args[0] {
 	case "help", "--help", "-h":
-		fmt.Println(USAGE)
+		fmt.Print(USAGE)
 	case "scan":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Usage: opencircuit scan <cidr>")

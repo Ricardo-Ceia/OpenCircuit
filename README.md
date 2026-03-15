@@ -1,105 +1,57 @@
 # OpenCircuit
 
-A professional, vendor-agnostic home network discovery tool written in Rust.
+A simple, professional home network discovery tool written in Go.
 
 ## Features
 
-- **Device Discovery**: Scan your local network to find connected devices
-- **Multiple Probe Types**: Ping, TCP Connect, mDNS, NetBIOS, Reverse DNS, ARP Neighbor
-- **Authoritative Sources**: Import DHCP leases from your router for reliable device identity
-- **Presence Tracking**: Remembers previously seen devices even when they're offline
-- **Hostname Resolution**: Automatic hostname detection from multiple sources
-- **Confidence Scoring**: Know the reliability of each device's identity
+- **Automatic broad scanning** - Scans all common ports without flags
+- **Multiple detection methods** - Neighbor table, DHCP leases, TCP probes, ping, DNS
+- **Recent device memory** - Remembers devices even when offline
+- **Zero configuration** - Just run `opencircuit scan <cidr>`
 
-## Quick Start
+## Installation
 
 ```bash
 # Build
-cargo build --release
+go build -o opencircuit .
 
-# Basic scan
-cargo run -- scan 192.168.1.0/24
-
-# Show all devices (including offline)
-cargo run -- scan 192.168.1.0/24 --all
-
-# With DHCP leases from your router (via SSH)
-cargo run -- scan 192.168.1.0/24 --dhcp-leases-ssh root@192.168.1.1:/tmp/dhcp.leases
-
-# With local DHCP lease file
-cargo run -- scan 192.168.1.0/24 --dhcp-leases /path/to/leases.txt
-
-# Fast scan (fewer ports, lower timeout)
-cargo run -- scan 192.168.1.0/24 --fast
-
-# Deep scan (comprehensive, longer)
-cargo run -- scan 192.168.1.0/24 --deep
+# Or install globally
+sudo mv opencircuit /usr/local/bin/
 ```
 
-## Output Format
-
-Each scan outputs key-value pairs:
-
-```
-scanned_hosts=254 records=254 shown=4 elapsed_ms=66251 recent_minutes=1440 gateway_ip=192.168.1.1 gateway_iface=eth0 gateway_neighbors=5 dhcp_leases=10
-ip=192.168.1.1 status=up presence=online connectivity_source=active_probe hostname=router.home hostname_source=reverse_dns hostname_confidence=90 mac=xx:xx:xx:xx:xx:xx open_ports=53,80,139,445
-```
-
-### Field Meanings
-
-| Field | Description |
-|-------|-------------|
-| `status` | Current probe result: `up`, `down`, `unknown` |
-| `presence` | Online presence: `online`, `recently_seen`, `offline` |
-| `connectivity_source` | How device was detected: `active_probe`, `gateway_table`, `dhcp_lease`, `both`, `recent_cache`, `none` |
-| `hostname_confidence` | Identity confidence: `95` (mDNS), `92` (NetBIOS), `90` (Reverse DNS), `0` (unverified) |
-
-## Scan Profiles
-
-| Profile | Timeout | Concurrency | Ports |
-|---------|---------|-------------|-------|
-| `--fast` | 250ms | 128 | 53,80,443 |
-| `--balanced` | 500ms | 64 | 22,53,80,139,443,445,8008,8009,8080 |
-| `--deep` (default) | 1000ms | 96 | Many including 62078 (Apple devices) |
-
-## Options
-
-```
---all                  Show offline devices too
---no-dns              Disable DNS/mDNS/NetBIOS hostname probes
---fast | --balanced | --deep   Scan profile (default: --deep)
---ports <csv>         Override TCP ports
---timeout-ms <n>      Per-probe timeout in milliseconds
---concurrency <n>     Concurrent host probes
---recent-minutes <n>  Keep recently seen devices visible (default: 1440)
---state-file <path>   Local state cache file
---dhcp-leases <path> Local DHCP lease file
---dhcp-leases-ssh <user@host:/path>  Fetch DHCP leases via SSH
-```
-
-## Building
+## Usage
 
 ```bash
-# Development
-cargo build
+# Scan your network
+opencircuit scan 192.168.1.0/24
 
-# Release (optimized)
-cargo build --release
-
-# Run tests
-cargo test
+# Show help
+opencircuit help
 ```
 
-## Use Cases
+## Output
 
-- **Home network mapping**: See all devices on your network
-- **Device monitoring**: Track which devices are online
-- **Troubleshooting**: Find IP addresses of known devices
-- **Integration**: Use with home automation (JSON output coming soon)
+```
+scanned_hosts=254 shown=4
+ip=192.168.1.1 status=up hostname=router ports=80,443
+ip=192.168.1.9 status=recently_seen hostname=- ports=62078
+```
 
-## Why "bulletproof"?
+## How It Works
 
-- Strict hostname policy: Only verified hostnames are shown
-- Confidence scoring: Know how reliable each identity is
-- Multiple sources: Combine probes with router data for best coverage
-- Persistence: Remember devices even when they go offline
+1. **Neighbor Table** - Checks local ARP cache first (fastest)
+2. **DHCP Leases** - Reads common lease files automatically
+3. **TCP Probes** - Scans common ports (22, 53, 80, 443, etc.)
+4. **Ping** - Fallback to ICMP ping
+5. **Reverse DNS** - Gets hostname if available
+
+Shows only devices that are:
+- **up** - Currently responding
+- **recently_seen** - In DHCP lease table but not currently responding
+
+## Why Go?
+
+- **Small binary** - Single static executable, runs on low-resource devices
+- **Fast** - Native performance
+- **Simple** - No dependencies, easy to build
+- **Memory safe** - No manual memory management

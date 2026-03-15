@@ -68,23 +68,31 @@ func Run(cidr string) ([]Device, error) {
 }
 
 func expandHosts(cidrStr string) ([]string, error) {
-	ip, network, err := net.ParseCIDR(cidrStr)
+	_, network, err := net.ParseCIDR(cidrStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid CIDR: %s", cidrStr)
 	}
 
-	ip = ip.To4()
 	mask := network.Mask
 	prefix := 0
 	for _, b := range mask {
 		prefix += bitsSet(b)
 	}
 
-	maskIP := net.IP(mask)
-	networkNum := ipToUint32(ip)
-	broadcastNum := networkNum | (^ipToUint32(maskIP))
+	networkIP := network.IP.To4()
+	networkNum := ipToUint32(networkIP)
+	broadcastNum := networkNum | (^ipToUint32(net.IP(mask)))
 
 	var hosts []string
+
+	// Handle special cases
+	if prefix == 32 {
+		return []string{networkIP.String()}, nil
+	}
+	if prefix == 31 {
+		return []string{uint32ToIP(networkNum).String(), uint32ToIP(broadcastNum).String()}, nil
+	}
+
 	for i := networkNum + 1; i < broadcastNum; i++ {
 		hosts = append(hosts, uint32ToIP(i).String())
 	}
@@ -102,11 +110,16 @@ func bitsSet(b byte) int {
 }
 
 func ipToUint32(ip net.IP) uint32 {
+	ip = ip.To4()
+	if ip == nil {
+		return 0
+	}
 	return uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
 }
 
 func uint32ToIP(n uint32) net.IP {
-	return net.IP{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}
+	ip := net.IP{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}
+	return ip.To4()
 }
 
 func probeHost(ip string, neighborIPs map[string]bool, dhcpHosts map[string]string) Device {
