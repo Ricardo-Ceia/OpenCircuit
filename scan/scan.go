@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+type progressCallback func(ip string)
+
 type Device struct {
 	IP       string
 	Status   string // "up", "recently_seen"
@@ -22,10 +24,16 @@ var (
 	timeout      = 500 * time.Millisecond
 )
 
-func Run(cidr string) ([]Device, error) {
+
+func Run(cidr string,progressCB progressCallback) ([]Device, error) {
+
 	hosts, err := expandHosts(cidr)
 	if err != nil {
 		return nil, err
+	}
+
+	for _,h := range hosts {
+		fmt.Printf("Scanning %s\n", h)
 	}
 
 	if len(hosts) == 0 {
@@ -46,7 +54,9 @@ func Run(cidr string) ([]Device, error) {
 		go func(ip string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-
+			if progressCB != nil {
+				progressCB(ip)
+			}
 			device := probeHost(ip, neighborIPs, dhcpHosts)
 			if device.Status != "" {
 				results <- device

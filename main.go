@@ -50,12 +50,15 @@ func main() {
 }
 
 func runScan(cidr string) {
-	devices, err := scan.Run(cidr)
+	devices, err := scan.Run(cidr,func (ip string) {
+		fmt.Fprintf(os.Stderr, "Scanning %s...\n", ip)	
+	})
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
+	
 	// Filter: show only "up" and "recently_seen"
 	filtered := []scan.Device{}
 	for _, d := range devices {
