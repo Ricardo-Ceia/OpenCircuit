@@ -86,7 +86,7 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestOutputFormat(t *testing.T) {
-	cmd := runCmd("scan", "127.0.0.0/30")
+	cmd := runCmd("--quiet", "scan", "127.0.0.0/30")
 	cmd.Dir = ".."
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -148,7 +148,7 @@ func TestMainHFlag(t *testing.T) {
 }
 
 func TestShowOnlyUpAndRecentlySeen(t *testing.T) {
-	cmd := runCmd("scan", "127.0.0.0/30")
+	cmd := runCmd("--quiet", "scan", "127.0.0.0/30")
 	cmd.Dir = ".."
 	output, err := cmd.CombinedOutput()
 	if err != nil {

@@ -1,18 +1,20 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	"opencircuit/scan"
+
+	"github.com/spf13/pflag"
 )
 
 const USAGE = `OpenCircuit - Simple Home Network Discovery
 
 Usage:
   opencircuit scan <cidr>       Scan network for devices
+  opencircuit --quiet scan <cidr>  Scan without progress
   opencircuit help             Show this help
   opencircuit --help           Show this help
 
@@ -21,14 +23,19 @@ Examples:
   opencircuit scan 10.0.0.0/8
 `
 
-func main() {
-	flag.Usage = func() {
+var quietFlag bool
+
+func init() {
+	pflag.BoolVarP(&quietFlag, "quiet", "q", false, "suppress progress output")
+	pflag.Usage = func() {
 		fmt.Print(USAGE)
 	}
+}
 
-	flag.Parse()
+func main() {
+	pflag.Parse()
 
-	args := flag.Args()
+	args := pflag.Args()
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, USAGE)
 		os.Exit(1)
@@ -50,16 +57,17 @@ func main() {
 }
 
 func runScan(cidr string) {
-	devices, err := scan.Run(cidr,func (ip string) {
-		fmt.Fprintf(os.Stderr, "Scanning %s...\n", ip)	
+	devices, err := scan.Run(cidr, func(ip string) {
+		if !quietFlag {
+			fmt.Fprintf(os.Stderr, "[scan] probing %s\n", ip)
+		}
 	})
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	
-	// Filter: show only "up" and "recently_seen"
+
 	filtered := []scan.Device{}
 	for _, d := range devices {
 		if d.Status == "up" || d.Status == "recently_seen" {
