@@ -56,3 +56,10 @@ export function drawRoom(ctx: CanvasRenderingContext2D, room: Room, width: numbe
   ctx.fillText(room.name, centerX, centerY);
 }
 
+
+export function renderMap(ctx: CanvasRenderingContext2D, rooms: Room[], width: number, height: number): void {
+  ctx.clearRect(0, 0, width, height);
+  for (const room of rooms) {
+    drawRoom(ctx, room, width, height);
+  }
+}

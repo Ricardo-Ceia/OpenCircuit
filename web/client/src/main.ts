@@ -1,18 +1,16 @@
-import {initMap,drawRoom} from './map.ts'
+import {initMap,drawRoom,renderMap} from './map.ts'
 import {rooms} from './rooms.ts'
 
-document.addEventListener('DOMContentLoaded',()=>{
+function handleWindowResize(){
   const result = initMap('map');
-
-  if (!result) {
-    console.error('failed to init map');
-    return;
+  if(result){
+    renderMap(result.ctx, rooms, result.canvas.width / window.devicePixelRatio, result.canvas.height / window.devicePixelRatio);
   }
+  return;
+}
 
-  const { ctx, canvas } = result;
-
-  for (const room of rooms) {
-    drawRoom(ctx, room, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
-  }
+document.addEventListener('DOMContentLoaded',()=>{
+  handleWindowResize();//initial render of map
+  window.addEventListener('resize',handleWindowResize);
 })
 
