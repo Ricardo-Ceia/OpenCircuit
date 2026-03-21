@@ -1,6 +1,13 @@
 import { serve } from "bun";
 import { Scanner } from "./database.ts";
-import {Routes} from "./routes.ts";
+import {getScansHandler,getDevicesHandler} from "./routes.ts";
+
+
+function getDeviceIdFromUrl(url: string): string | null{
+  const parts = url.split("/");
+  const deviceId = parts[2];
+  return deviceId && /^[a-zA-Z0-9-_]+$/.test(deviceId) ? deviceId : null;
+}
 
 
 const scanner = new Scanner("scanner.db");
@@ -8,17 +15,18 @@ const modules = new Map<string, WebSocket>();
 
 serve({
   port: 3000,
-   port: 3000,
   routes: {
-    "/devices/:deviceId": (req, { params }) => {
-      const url = new URL(req.url);
-      const deviceId = url.pathname.split("/")[2];
-      return routes.getDevicesHandler(scanner,deviceId);      
+    "/devices/:deviceId": (req) => {
+      const url = new URL(req.url).toString();
+      const deviceId = getDeviceIdFromUrl(url)
+      if(!deviceId)return;
+      return getDevicesHandler(scanner,deviceId);      
     },
-    "/scans/:deviceId": (req, { params }) => {
-      const url = new URL(req.url);
-      const deviceId = url.pathname.split("/")[2];
-      return routes.getScansHandler(scanner,deviceId);  
+    "/scans/:deviceId": (req) => {
+      const url = new URL(req.url).toString();
+      const deviceId = getDeviceIdFromUrl(url);
+      if(!deviceId)return;
+      return getScansHandler(scanner,deviceId);  
     },
   },
   fetch(req, server) {
