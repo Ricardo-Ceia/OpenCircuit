@@ -163,7 +163,7 @@ export function initMapDraggable(
 
   let hoveredRoom: Room | null = null;
 
-  canvas.addEventListener('dragover', (e) => {
+  canvas.ondragover = (e: DragEvent) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const width = rect.width;
@@ -178,9 +178,9 @@ export function initMapDraggable(
     }
 
     canvas.style.cursor = hoveredRoom ? 'copy' : 'not-allowed';
-  });
+  };
 
-  canvas.addEventListener('dragleave', (e) => {
+  canvas.ondragleave = (e: DragEvent) => {
     const rect = canvas.getBoundingClientRect();
     if (e.clientX < rect.left || e.clientX > rect.right ||
         e.clientY < rect.top || e.clientY > rect.bottom) {
@@ -188,9 +188,9 @@ export function initMapDraggable(
       onHover(null);
       canvas.style.cursor = 'default';
     }
-  });
+  };
 
-  canvas.addEventListener('drop', (e) => {
+  canvas.ondrop = (e: DragEvent) => {
     e.preventDefault();
     const deviceIp = e.dataTransfer?.getData('text/plain');
     if (!deviceIp || !hoveredRoom) return;
@@ -203,7 +203,7 @@ export function initMapDraggable(
     hoveredRoom = null;
     onHover(null);
     canvas.style.cursor = 'default';
-  });
+  };
 }
 
 export function findDeviceAtPoint(

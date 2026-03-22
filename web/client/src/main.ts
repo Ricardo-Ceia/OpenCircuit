@@ -63,7 +63,7 @@ function onCanvasClick(e: MouseEvent): void {
 
 function bindCanvasInteractions(): void {
   initMapDraggable(canvasState, rooms, handleDrop, onHover);
-  canvasState.canvas.addEventListener('click', onCanvasClick);
+  canvasState.canvas.onclick = onCanvasClick;
 }
 
 function handleDrop(deviceIp: string, roomId: string, x: number, y: number) {
