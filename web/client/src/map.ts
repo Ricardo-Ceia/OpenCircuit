@@ -108,7 +108,8 @@ export function renderMap(
   devices: Device[],
   width: number,
   height: number,
-  hoveredRoom: Room | null = null
+  hoveredRoom: Room | null = null,
+  selectedDeviceIp: string | null = null
 ): void {
   const { ctx } = state;
 
@@ -137,8 +138,17 @@ export function renderMap(
 
   for (const assignment of assignments) {
     const device = devices.find(d => d.ip === assignment.deviceIp);
-    if (device) {
-      drawDeviceOnMap(ctx, device, assignment, width, height);
+    if (!device) continue;
+
+    drawDeviceOnMap(ctx, device, assignment, width, height);
+    if (selectedDeviceIp === device.ip) {
+      const x = assignment.x * width;
+      const y = assignment.y * height;
+      ctx.beginPath();
+      ctx.arc(x, y, 18, 0, Math.PI * 2);
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 3;
+      ctx.stroke();
     }
   }
 }
@@ -194,4 +204,24 @@ export function initMapDraggable(
     onHover(null);
     canvas.style.cursor = 'default';
   });
+}
+
+export function findDeviceAtPoint(
+  x: number,
+  y: number,
+  assignments: DeviceAssignment[],
+  devices: Device[],
+  width: number,
+  height: number
+): Device | null {
+  const hitRadius = 14; // close to drawn circle radius (12)
+  for (const assignment of assignments) {
+    const device = devices.find(d => d.ip === assignment.deviceIp);
+    if (!device) continue;
+    const dx = x - assignment.x * width;
+    const dy = y - assignment.y * height;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= hitRadius) return device;
+  }
+  return null;
 }

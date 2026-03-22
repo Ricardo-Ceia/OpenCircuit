@@ -13,7 +13,7 @@ html, body {
   position: fixed;
   left: 280px;
   top: 0;
-  width: calc(100% - 280px);
+  width: calc(100% - 560px);
   height: 100%;
 }
 #devices-panel {
@@ -30,7 +30,28 @@ html, body {
 #devices-panel h2 {
   font-size: 14px;
   text-transform: uppercase;
-  color: #888;
+  color: #94a3b8;
+  margin-bottom: 16px;
+  letter-spacing: 1px;
+}
+
+#details-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 280px;
+  height: 100%;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-left: 1px solid #1e293b;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+#details-panel h2 {
+  font-size: 14px;
+  text-transform: uppercase;
+  color: #94a3b8;
   margin-bottom: 16px;
   letter-spacing: 1px;
 }
@@ -40,7 +61,8 @@ html, body {
   background: #16213e;
   border-radius: 8px;
   cursor: grab;
-  transition: background 0.2s;
+  transition: background 0.2s, outline-color 0.2s;
+  outline: 2px solid transparent;
 }
 .device-item:hover {
   background: #1f2b4a;
@@ -48,13 +70,18 @@ html, body {
 .device-item:active {
   cursor: grabbing;
 }
+
+.device-item.selected {
+  outline-color: #38bdf8;
+  background: #20345f;
+}
 .device-hostname {
   font-weight: 600;
   margin-bottom: 4px;
 }
 .device-ip {
   font-size: 12px;
-  color: #888;
+  color: #94a3b8;
   margin-bottom: 8px;
 }
 .device-meta {
@@ -65,4 +92,20 @@ html, body {
 .status-up { color: #4ade80; }
 .status-recently_seen { color: #fbbf24; }
 .status-down { color: #6b7280; }
-.device-ports { color: #888; }
+.device-ports { color: #94a3b8; }
+
+.detail-row {
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.detail-label {
+  color: #94a3b8;
+  display: inline-block;
+  min-width: 90px;
+}
+
+.detail-value {
+  color: #e2e8f0;
+  word-break: break-word;
+}

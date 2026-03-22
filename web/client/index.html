@@ -2,14 +2,21 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>opencircuit</title>
     <link rel="stylesheet" href="style.css" />
+    <title>opencircuit</title>
   </head>
   <body>
     <div id="devices-panel">
       <h2>Devices</h2>
     </div>
+
     <canvas id="map"></canvas>
+
+    <aside id="details-panel">
+      <h2>Device Details</h2>
+      <div id="details-content">Select a device from the list or map.</div>
+    </aside>
+
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
