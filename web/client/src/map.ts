@@ -118,8 +118,20 @@ export function renderMap(
     drawRoom(ctx, room, width, height);
 
     if (hoveredRoom && room.name === hoveredRoom.name) {
-      ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
-      drawRoom(ctx, room, width, height);
+      ctx.beginPath();
+      const firstPoint = room.points[0];
+      if (firstPoint) {
+        ctx.moveTo(firstPoint.x * width, firstPoint.y * height);
+        for (let i = 1; i < room.points.length; i++) {
+          const point = room.points[i];
+          if (point) {
+            ctx.lineTo(point.x * width, point.y * height);
+          }
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+        ctx.fill();
+      }
     }
   }
 
@@ -134,7 +146,8 @@ export function renderMap(
 export function initMapDraggable(
   state: CanvasState,
   rooms: Room[],
-  onDrop: (deviceIp: string, roomId: string, x: number, y: number) => void
+  onDrop: (deviceIp: string, roomId: string, x: number, y: number) => void,
+  onHover: (room: Room | null) => void
 ): void {
   const { canvas } = state;
 
@@ -147,11 +160,24 @@ export function initMapDraggable(
     const height = rect.height;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    hoveredRoom = findRoomAtPoint(x, y, rooms, width, height);
+    const newHoveredRoom = findRoomAtPoint(x, y, rooms, width, height);
+
+    if (newHoveredRoom?.name !== hoveredRoom?.name) {
+      hoveredRoom = newHoveredRoom;
+      onHover(hoveredRoom);
+    }
+
+    canvas.style.cursor = hoveredRoom ? 'copy' : 'not-allowed';
   });
 
-  canvas.addEventListener('dragleave', () => {
-    hoveredRoom = null;
+  canvas.addEventListener('dragleave', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX > rect.right ||
+        e.clientY < rect.top || e.clientY > rect.bottom) {
+      hoveredRoom = null;
+      onHover(null);
+      canvas.style.cursor = 'default';
+    }
   });
 
   canvas.addEventListener('drop', (e) => {
@@ -165,5 +191,7 @@ export function initMapDraggable(
 
     onDrop(deviceIp, hoveredRoom.name, x, y);
     hoveredRoom = null;
+    onHover(null);
+    canvas.style.cursor = 'default';
   });
 }

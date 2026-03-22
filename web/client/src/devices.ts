@@ -26,7 +26,10 @@ export function renderDevices(devicePanelId: string,devices: Device[]): void{
     `;
 
     div.addEventListener('dragstart',(e)=>{
-      e.dataTransfer?.setData('text/plain',device.ip);
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/plain', device.ip);
+      }
     });
 
     panel.appendChild(div);

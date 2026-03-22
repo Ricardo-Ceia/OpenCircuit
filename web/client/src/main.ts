@@ -12,6 +12,7 @@ let hoveredRoom: Room | null = null;
 function handleDrop(deviceIp: string, roomId: string, x: number, y: number) {
   assignments = assignments.filter(a => a.deviceIp !== deviceIp);
   assignments.push({ deviceIp, roomId, x, y });
+  hoveredRoom = null;
   render();
 }
 
@@ -21,17 +22,22 @@ function render() {
   renderMap(canvasState, rooms, assignments, devices, width, height, hoveredRoom);
 }
 
+function onHover(room: Room | null) {
+  hoveredRoom = room;
+  render();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   devices = await fetchDevices();
   renderDevices('devices-panel', devices);
 
   canvasState = initMap();
-  initMapDraggable(canvasState, rooms, handleDrop);
+  initMapDraggable(canvasState, rooms, handleDrop, onHover);
   render();
 
   window.addEventListener('resize', () => {
     canvasState = initMap();
-    initMapDraggable(canvasState, rooms, handleDrop);
+    initMapDraggable(canvasState, rooms, handleDrop, onHover);
     render();
   });
 });
