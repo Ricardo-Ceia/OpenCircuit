@@ -4,9 +4,10 @@ export function initMap(): CanvasState {
   const canvas = document.getElementById('map') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d')!;
 
+  const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  const width = window.innerWidth || 800;
-  const height = window.innerHeight || 600;
+  const width = Math.max(1, Math.floor(rect.width));
+  const height = Math.max(1, Math.floor(rect.height));
 
   canvas.width = width * dpr;
   canvas.height = height * dpr;

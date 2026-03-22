@@ -6,16 +6,20 @@
     <title>opencircuit</title>
   </head>
   <body>
-    <div id="devices-panel">
-      <h2>Devices</h2>
-    </div>
+    <main id="app">
+      <section id="devices-panel">
+        <h2>Devices</h2>
+      </section>
 
-    <canvas id="map"></canvas>
+      <section id="map-stage">
+        <canvas id="map"></canvas>
+      </section>
 
-    <aside id="details-panel">
-      <h2>Device Details</h2>
-      <div id="details-content">Select a device from the list or map.</div>
-    </aside>
+      <aside id="details-panel">
+        <h2>Device Details</h2>
+        <div id="details-content">Select a device from the list or map.</div>
+      </aside>
+    </main>
 
     <script type="module" src="./src/main.ts"></script>
   </body>

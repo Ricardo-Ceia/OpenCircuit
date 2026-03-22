@@ -9,6 +9,7 @@ let assignments: DeviceAssignment[] = [];
 let canvasState: ReturnType<typeof initMap>;
 let hoveredRoom: Room | null = null;
 let selectedDeviceIp: string | null = null;
+let resizeObserver: ResizeObserver | null = null;
 
 function getAssignedRoomName(deviceIp: string): string {
   const assignment = assignments.find(a => a.deviceIp === deviceIp);
@@ -66,6 +67,12 @@ function bindCanvasInteractions(): void {
   canvasState.canvas.onclick = onCanvasClick;
 }
 
+function reflowAndRender(): void {
+  canvasState = initMap();
+  bindCanvasInteractions();
+  render();
+}
+
 function handleDrop(deviceIp: string, roomId: string, x: number, y: number) {
   assignments = assignments.filter(a => a.deviceIp !== deviceIp);
   assignments.push({ deviceIp, roomId, x, y });
@@ -90,13 +97,15 @@ function onHover(room: Room | null) {
 document.addEventListener('DOMContentLoaded', async () => {
   devices = await fetchDevices();
 
-  canvasState = initMap();
-  bindCanvasInteractions();
-  render();
+  reflowAndRender();
 
-  window.addEventListener('resize', () => {
-    canvasState = initMap();
-    bindCanvasInteractions();
-    render();
-  });
+  const mapStage = document.getElementById('map-stage');
+  if (mapStage) {
+    resizeObserver = new ResizeObserver(() => {
+      reflowAndRender();
+    });
+    resizeObserver.observe(mapStage);
+  }
+
+  window.addEventListener('resize', reflowAndRender);
 });
