@@ -6,3 +6,9 @@ export type Room = {
   points: Point[];
 };
 
+export type Device = {
+  ip: string;
+  hostname: string;
+  status: 'up' | 'recently_seen' | 'down';
+  ports: number[];
+}

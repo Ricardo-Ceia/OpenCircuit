@@ -1,5 +1,9 @@
-import {initMap,drawRoom,renderMap} from './map.ts'
+import {initMap,renderMap} from './map.ts'
 import {rooms} from './rooms.ts'
+import { renderDevices } from './devices.ts';
+import { fetchDevices } from './api.ts';
+
+let devices = await fetchDevices();
 
 function handleWindowResize(){
   const result = initMap('map');
@@ -12,5 +16,6 @@ function handleWindowResize(){
 document.addEventListener('DOMContentLoaded',()=>{
   handleWindowResize();//initial render of map
   window.addEventListener('resize',handleWindowResize);
+  renderDevices('devices-panel',devices)
 })
 

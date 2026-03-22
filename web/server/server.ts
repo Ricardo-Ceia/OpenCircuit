@@ -9,7 +9,6 @@ function getDeviceIdFromUrl(url: string): string | null{
   return deviceId && /^[a-zA-Z0-9-_]+$/.test(deviceId) ? deviceId : null;
 }
 
-
 const scanner = new Scanner("scanner.db");
 const modules = new Map<string, WebSocket>();
 
