@@ -24,6 +24,11 @@ export function renderDevices(devicePanelId: string,devices: Device[]): void{
         <span class="device-ports">${portCount} port${portCount !== 1 ? 's' : ''}</span>
       </div>
     `;
+
+    div.addEventListener('dragstart',(e)=>{
+      e.dataTransfer?.setData('text/plain',device.ip);
+    });
+
     panel.appendChild(div);
   }
 }

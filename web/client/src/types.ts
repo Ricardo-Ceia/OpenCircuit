@@ -11,4 +11,16 @@ export type Device = {
   hostname: string;
   status: 'up' | 'recently_seen' | 'down';
   ports: number[];
-}
+};
+
+export type DeviceAssignment = {
+  deviceIp: string;
+  roomId: string;
+  x: number;
+  y: number;
+};
+
+export type CanvasState = {
+  ctx: CanvasRenderingContext2D;
+  canvas: HTMLCanvasElement;
+};
