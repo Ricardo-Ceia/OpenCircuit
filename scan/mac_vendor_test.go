@@ -79,12 +79,12 @@ func TestDeviceDisplayName(t *testing.T) {
 		device Device
 		want  string
 	}{
-		{"hostname takes priority", Device{Hostname: "my-laptop.local", Vendor: "Apple", Type: "computer", IP: "192.168.1.5"}, "my-laptop.local"},
-		{"vendor + type fallback", Device{Vendor: "Apple", Type: "phone", IP: "192.168.1.10"}, "Apple phone"},
+		{"hostname takes priority", Device{Hostname: "my-laptop.local", Vendor: "Apple", DeviceType: "computer", IP: "192.168.1.5"}, "my-laptop.local"},
+		{"vendor + type fallback", Device{Vendor: "Apple", DeviceType: "phone", IP: "192.168.1.10"}, "Apple phone"},
 		{"vendor only fallback", Device{Vendor: "Samsung", IP: "192.168.1.20"}, "Samsung"},
 		{"IP only fallback", Device{IP: "192.168.1.30"}, "192.168.1.30"},
-		{"type without vendor", Device{Type: "tv", IP: "192.168.1.40"}, "192.168.1.40"},
-		{"unknown type ignored", Device{Vendor: "Apple", Type: "unknown", IP: "192.168.1.50"}, "Apple"},
+		{"type without vendor", Device{DeviceType: "tv", IP: "192.168.1.40"}, "192.168.1.40"},
+		{"unknown type ignored", Device{Vendor: "Apple", DeviceType: "unknown", IP: "192.168.1.50"}, "Apple"},
 	}
 
 	for _, tt := range tests {

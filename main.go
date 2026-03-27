@@ -82,12 +82,24 @@ func runScan(cidr string) {
 		if hostname == "" {
 			hostname = "-"
 		}
+		mac := d.MAC
+		if mac == "" {
+			mac = "-"
+		}
+		vendor := d.Vendor
+		if vendor == "" {
+			vendor = "-"
+		}
+		deviceType := d.DeviceType
+		if deviceType == "" {
+			deviceType = "-"
+		}
 		ports := "-"
 		if len(d.Ports) > 0 {
 			ports = intsToString(d.Ports)
 		}
-		fmt.Printf("ip=%s status=%s hostname=%s ports=%s\n",
-			d.IP, d.Status, hostname, ports)
+		fmt.Printf("ip=%s status=%s hostname=%s mac=%s vendor=%s type=%s ports=%s\n",
+			d.IP, d.Status, hostname, mac, vendor, deviceType, ports)
 	}
 }
 
