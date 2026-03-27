@@ -173,3 +173,127 @@ func replaceAll(s, old, new string) string {
 	}
 	return result
 }
+
+type UPnPInfo struct {
+	FriendlyName string
+	ModelName    string
+	Manufacturer string
+	DeviceType   string
+	Location     string
+}
+
+func probeUPnP(ip string) UPnPInfo {
+	info := UPnPInfo{}
+
+	addr := fmt.Sprintf("%s:1900", ip)
+	conn, err := net.DialTimeout("udp", addr, 2*time.Second)
+	if err != nil {
+		return info
+	}
+	defer conn.Close()
+
+	query := "M-SEARCH * HTTP/1.1\r\n" +
+		"HOST: 239.255.255.250:1900\r\n" +
+		"MAN: \"ssdp:discover\"\r\n" +
+		"MX: 2\r\n" +
+		"ST: ssdp:all\r\n" +
+		"\r\n"
+
+	_, err = conn.Write([]byte(query))
+	if err != nil {
+		return info
+	}
+
+	buffer := make([]byte, 4096)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return info
+	}
+
+	response := string(buffer[:n])
+	info = parseUPnPResponse(response, ip)
+
+	return info
+}
+
+func parseUPnPResponse(response, ip string) UPnPInfo {
+	info := UPnPInfo{}
+	info.Location = ip + ":1900"
+
+	lines := splitLines(response)
+	for _, line := range lines {
+		line = trimSpace(line)
+
+		if hasPrefixCI(line, "SERVER:") || hasPrefixCI(line, "SERVER ") {
+			server := trimPrefix(line, "SERVER:")
+			server = trimPrefix(server, "SERVER")
+			info.FriendlyName = trimSpace(server)
+		}
+
+		if hasPrefixCI(line, "ST:") || hasPrefixCI(line, "ST ") {
+			st := trimPrefix(line, "ST:")
+			st = trimPrefix(st, "ST")
+			st = trimSpace(st)
+
+			if contains(st, "urn:schemas-upnp-org:device:") {
+				info.DeviceType = extractUPnPDeviceType(st)
+			}
+			if contains(st, "urn:dial-multiscreen-org:service:dial:1") {
+				info.FriendlyName = "Chromecast"
+			}
+		}
+
+		if hasPrefixCI(line, "X-USER-AGENT:") || hasPrefixCI(line, "X-USER-AGENT ") {
+			ua := trimPrefix(line, "X-USER-AGENT:")
+			ua = trimPrefix(ua, "X-USER-AGENT")
+			info.FriendlyName = trimSpace(ua)
+		}
+	}
+
+	if info.FriendlyName == "" && info.DeviceType != "" {
+		info.FriendlyName = deviceTypeToName(info.DeviceType)
+	}
+
+	return info
+}
+
+func extractUPnPDeviceType(st string) string {
+	start := find(st, "device:")
+	if start == -1 {
+		return ""
+	}
+	start += 7
+	end := find(st[start:], ":")
+	if end == -1 {
+		return st[start:]
+	}
+	return st[start : start+end]
+}
+
+func deviceTypeToName(dt string) string {
+	dt = toLower(dt)
+	switch {
+	case contains(dt, "mediaplayer"):
+		return "Media Player"
+	case contains(dt, "tv"):
+		return "TV"
+	case contains(dt, "router"):
+		return "Router"
+	case contains(dt, "gateway"):
+		return "Gateway"
+	case contains(dt, "printer"):
+		return "Printer"
+	case contains(dt, "storage"):
+		return "NAS"
+	case contains(dt, "camera"):
+		return "Camera"
+	default:
+		return "UPnP Device"
+	}
+}
+
+func contains(s, substr string) bool {
+	return find(s, substr) != -1
+}

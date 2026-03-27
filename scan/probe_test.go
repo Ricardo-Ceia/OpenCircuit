@@ -106,4 +106,63 @@ func TestHTTPHelperFunctions(t *testing.T) {
 			t.Error("toLower failed")
 		}
 	})
+
+	t.Run("contains", func(t *testing.T) {
+		if !contains("hello world", "world") {
+			t.Error("contains failed")
+		}
+		if contains("hello", "xyz") {
+			t.Error("contains should be false")
+		}
+	})
+}
+
+func TestUPnPResponseParsing(t *testing.T) {
+	t.Run("parse UPnP response", func(t *testing.T) {
+		response := `HTTP/1.1 200 OK
+ST: urn:schemas-upnp-org:device:MediaPlayer:1
+USN: uuid:12345678-1234-1234-1234-123456789abc::urn:schemas-upnp-org:device:MediaPlayer:1
+SERVER: Linux/4.0 UPnP/1.0 Samsung Smart TV/1.0
+X-USER-AGENT: Samsung MRD`
+
+		info := parseUPnPResponse(response, "192.168.1.5")
+		if info.DeviceType != "MediaPlayer" {
+			t.Errorf("DeviceType = %q, want MediaPlayer", info.DeviceType)
+		}
+	})
+
+	t.Run("extract device type", func(t *testing.T) {
+		tests := []struct {
+			input string
+			want  string
+		}{
+			{"urn:schemas-upnp-org:device:MediaPlayer:1", "MediaPlayer"},
+			{"urn:schemas-upnp-org:device:TV:1", "TV"},
+			{"urn:schemas-upnp-org:device:InternetGatewayDevice:1", "InternetGatewayDevice"},
+		}
+		for _, tt := range tests {
+			got := extractUPnPDeviceType(tt.input)
+			if got != tt.want {
+				t.Errorf("extractUPnPDeviceType(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		}
+	})
+
+	t.Run("device type to name", func(t *testing.T) {
+		tests := []struct {
+			input string
+			want  string
+		}{
+			{"mediaplayer", "Media Player"},
+			{"tv", "TV"},
+			{"printer", "Printer"},
+			{"storage", "NAS"},
+		}
+		for _, tt := range tests {
+			got := deviceTypeToName(tt.input)
+			if got != tt.want {
+				t.Errorf("deviceTypeToName(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		}
+	})
 }
