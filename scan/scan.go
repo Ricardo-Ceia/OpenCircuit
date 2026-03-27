@@ -5,6 +5,7 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -53,62 +54,77 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 		}
 	}
 
-	// TCP port scan for each host + HTTP/UPnP/mDNS service probes
+	// Parallel host probing with semaphore
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	sem := make(chan struct{}, 32) // 32 concurrent workers
+
 	for _, ip := range hosts {
-		if progressCB != nil {
-			progressCB(ip)
-		}
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		device := probeHost(ip)
-
-		httpInfo := probeHTTP(ip)
-		if httpInfo.Server != "" {
-			device.HTTPInfo = httpInfo.Server
-			if httpInfo.Title != "" {
-				device.HTTPInfo += " - " + httpInfo.Title
+			if progressCB != nil {
+				progressCB(ip)
 			}
-		}
 
-		upnpInfo := probeUPnP(ip)
-		if upnpInfo.FriendlyName != "" {
-			device.UPnPInfo = upnpInfo.FriendlyName
-		}
+			device := probeHost(ip)
 
-		mdnsInfo := probeMDNSService(ip)
-		if mdnsInfo.Service != "" {
-			device.Services = append(device.Services, mdnsInfo.Service)
-			if mdnsInfo.Name != "" {
-				device.FriendlyName = mdnsInfo.Name
+			httpInfo := probeHTTP(ip)
+			if httpInfo.Server != "" {
+				device.HTTPInfo = httpInfo.Server
+				if httpInfo.Title != "" {
+					device.HTTPInfo += " - " + httpInfo.Title
+				}
 			}
-		}
 
-		device.FriendlyName = buildFriendlyName(device)
-
-		if device.Status != "" {
-			if existing, ok := deviceMap[ip]; ok {
-				existing.Status = device.Status
-				existing.Ports = device.Ports
-				if device.Hostname != "" {
-					existing.Hostname = device.Hostname
-				}
-				if device.FriendlyName != "" {
-					existing.FriendlyName = device.FriendlyName
-				}
-				if device.HTTPInfo != "" {
-					existing.HTTPInfo = device.HTTPInfo
-				}
-				if device.UPnPInfo != "" {
-					existing.UPnPInfo = device.UPnPInfo
-				}
-				if len(device.Services) > 0 {
-					existing.Services = device.Services
-				}
-				deviceMap[ip] = existing
-			} else {
-				deviceMap[ip] = device
+			upnpInfo := probeUPnP(ip)
+			if upnpInfo.FriendlyName != "" {
+				device.UPnPInfo = upnpInfo.FriendlyName
 			}
-		}
+
+			mdnsInfo := probeMDNSService(ip)
+			if mdnsInfo.Service != "" {
+				device.Services = append(device.Services, mdnsInfo.Service)
+				if mdnsInfo.Name != "" {
+					device.FriendlyName = mdnsInfo.Name
+				}
+			}
+
+			device.FriendlyName = buildFriendlyName(device)
+
+			mu.Lock()
+			if device.Status != "" {
+				if existing, ok := deviceMap[ip]; ok {
+					existing.Status = device.Status
+					existing.Ports = device.Ports
+					if device.Hostname != "" {
+						existing.Hostname = device.Hostname
+					}
+					if device.FriendlyName != "" {
+						existing.FriendlyName = device.FriendlyName
+					}
+					if device.HTTPInfo != "" {
+						existing.HTTPInfo = device.HTTPInfo
+					}
+					if device.UPnPInfo != "" {
+						existing.UPnPInfo = device.UPnPInfo
+					}
+					if len(device.Services) > 0 {
+						existing.Services = device.Services
+					}
+					deviceMap[ip] = existing
+				} else {
+					deviceMap[ip] = device
+				}
+			}
+			mu.Unlock()
+		}(ip)
 	}
+
+	wg.Wait()
 
 	// Convert map to slice
 	var devices []Device
