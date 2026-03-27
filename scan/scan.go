@@ -19,7 +19,10 @@ type Device struct {
 	IP       string
 	Status   string // "up", "recently_seen"
 	Hostname string
+	MAC      string
+	Vendor   string
 	Ports    []int
+	Type     string // "phone", "computer", "tv", "iot", "router", "unknown"
 }
 
 var (
@@ -55,13 +58,17 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for ip := range arpScan(hosts) {
+		for device := range arpScan(hosts) {
 			mu.Lock()
-			if existing, ok := deviceMap[ip]; ok {
+			if existing, ok := deviceMap[device.IP]; ok {
 				existing.Status = "up"
-				deviceMap[ip] = existing
+				if device.MAC != "" {
+					existing.MAC = device.MAC
+					existing.Vendor = device.Vendor
+				}
+				deviceMap[device.IP] = existing
 			} else {
-				deviceMap[ip] = Device{IP: ip, Status: "up"}
+				deviceMap[device.IP] = device
 			}
 			mu.Unlock()
 		}
@@ -158,9 +165,13 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 
 	wg.Wait()
 
-	// Convert map to slice
+	// Convert map to slice and finalize device info
 	var devices []Device
 	for _, d := range deviceMap {
+		// Infer device type if not already set
+		if d.Type == "" && len(d.Ports) > 0 {
+			d.Type = inferDeviceType(d.Ports)
+		}
 		devices = append(devices, d)
 	}
 
@@ -243,13 +254,18 @@ func probeHost(ip string) Device {
 		}
 	}
 
+	// Infer device type from open ports
+	if len(device.Ports) > 0 {
+		device.Type = inferDeviceType(device.Ports)
+	}
+
 	return device
 }
 
 // arpScan uses gopacket to send ARP requests to all hosts
 // This is the most reliable method for local network discovery
-func arpScan(hosts []string) chan string {
-	results := make(chan string, 256)
+func arpScan(hosts []string) chan Device {
+	results := make(chan Device, 256)
 
 	go func() {
 		defer close(results)
@@ -284,7 +300,7 @@ func arpScan(hosts []string) chan string {
 		for _, targetIP := range hosts {
 			sendARPRequest(handle, iface.Name, srcMAC, srcIP, net.ParseIP(targetIP))
 			select {
-			case results <- targetIP:
+			case results <- Device{IP: targetIP, Status: "up"}:
 			default:
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -308,8 +324,16 @@ func arpScan(hosts []string) chan string {
 					arp := arpLayer.(*layers.ARP)
 					if arp.Operation == 2 { // ARP Reply
 						ip := net.IP(arp.SourceProtAddress).String()
+						mac := net.HardwareAddr(arp.SourceHwAddress).String()
+						vendor := MACVendorLookup(mac)
+						device := Device{
+							IP:     ip,
+							Status: "up",
+							MAC:    mac,
+							Vendor: vendor,
+						}
 						select {
-						case results <- ip:
+						case results <- device:
 						default:
 						}
 					}
@@ -534,4 +558,41 @@ func ssdpScan() chan string {
 func isValidIP(ip string) bool {
 	parsed := net.ParseIP(ip)
 	return parsed != nil && parsed.To4() != nil
+}
+
+func inferDeviceType(ports []int) string {
+	portSet := make(map[int]bool)
+	for _, p := range ports {
+		portSet[p] = true
+	}
+
+	switch {
+	case portSet[554] || portSet[8008] || portSet[8009] || portSet[9000]:
+		return "tv"
+	case portSet[22]:
+		return "computer"
+	case portSet[62078]:
+		return "phone"
+	case portSet[5353] || portSet[1900]:
+		return "iot"
+	case portSet[53] || portSet[80] || portSet[443] && portSet[139]:
+		return "router"
+	case portSet[631]:
+		return "printer"
+	default:
+		return "unknown"
+	}
+}
+
+func (d *Device) DisplayName() string {
+	if d.Hostname != "" {
+		return d.Hostname
+	}
+	if d.Vendor != "" && d.Type != "" && d.Type != "unknown" {
+		return d.Vendor + " " + d.Type
+	}
+	if d.Vendor != "" {
+		return d.Vendor
+	}
+	return d.IP
 }
