@@ -7,6 +7,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcap"
 )
 
 type progressCallback func(ip string)
@@ -37,34 +41,17 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// Quick: Check ARP neighbor table first (fastest)
-	// Only include neighbors that are in our scan range
-	neighborIPs := loadNeighborTable()
+	// Always add localhost if in range (common case)
 	hostsMap := make(map[string]bool)
 	for _, h := range hosts {
 		hostsMap[h] = true
 	}
-	for ip := range neighborIPs {
-		if hostsMap[ip] {
-			mu.Lock()
-			if _, exists := deviceMap[ip]; !exists {
-				deviceMap[ip] = Device{IP: ip, Status: "recently_seen"}
-			}
-			mu.Unlock()
-		}
-	}
-
-	// Always add localhost if in range (common case)
 	if hostsMap["127.0.0.1"] {
-		mu.Lock()
-		if _, exists := deviceMap["127.0.0.1"]; !exists {
-			deviceMap["127.0.0.1"] = Device{IP: "127.0.0.1", Status: "up"}
-		}
-		mu.Unlock()
+		deviceMap["127.0.0.1"] = Device{IP: "127.0.0.1", Status: "up"}
 	}
 
-	// Run discovery methods in parallel
-	// Method 1: ARP scan (probes to populate neighbor cache)
+	// Method 1: ARP Scan using gopacket (most reliable)
+	// Falls back to UDP probes if pcap fails (no root)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -80,39 +67,24 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 		}
 	}()
 
-	// Method 2: mDNS scan (finds Apple devices, Chromecast, etc)
+	// Method 1b: UDP probe fallback (works without root)
+	// Sends UDP packets to trigger ARP responses
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for ip := range mDNSScan() {
+		for ip := range udpProbeScan(hosts) {
 			mu.Lock()
 			if existing, ok := deviceMap[ip]; ok {
 				existing.Status = "up"
 				deviceMap[ip] = existing
 			} else {
-				deviceMap[ip] = Device{IP: ip, Status: "up"}
+				deviceMap[ip] = Device{IP: ip, Status: "recently_seen"}
 			}
 			mu.Unlock()
 		}
 	}()
 
-	// Method 3: SSDP scan (finds TVs, consoles, routers)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for ip := range ssdpScan() {
-			mu.Lock()
-			if existing, ok := deviceMap[ip]; ok {
-				existing.Status = "up"
-				deviceMap[ip] = existing
-			} else {
-				deviceMap[ip] = Device{IP: ip, Status: "up"}
-			}
-			mu.Unlock()
-		}
-	}()
-
-	// Method 4: TCP probe (finds devices with open ports)
+	// Method 2: TCP probe (fallback for devices with open ports)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -152,18 +124,39 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 		probeWg.Wait()
 	}()
 
-	wg.Wait()
-
-	// Final fallback: ICMP ping sweep if no devices found
-	mu.Lock()
-	if len(deviceMap) == 0 {
-		for _, ip := range hosts {
-			if ping(ip) {
+	// Method 3: mDNS scan (finds Apple devices, Chromecast, etc)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ip := range mDNSScan() {
+			mu.Lock()
+			if existing, ok := deviceMap[ip]; ok {
+				existing.Status = "up"
+				deviceMap[ip] = existing
+			} else {
 				deviceMap[ip] = Device{IP: ip, Status: "up"}
 			}
+			mu.Unlock()
 		}
-	}
-	mu.Unlock()
+	}()
+
+	// Method 4: SSDP scan (finds TVs, consoles, routers)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ip := range ssdpScan() {
+			mu.Lock()
+			if existing, ok := deviceMap[ip]; ok {
+				existing.Status = "up"
+				deviceMap[ip] = existing
+			} else {
+				deviceMap[ip] = Device{IP: ip, Status: "up"}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
 
 	// Convert map to slice
 	var devices []Device
@@ -242,15 +235,8 @@ func probeHost(ip string) Device {
 		}
 	}
 
-	// Try ICMP ping as fallback
-	if device.Status == "" {
-		if ping(ip) {
-			device.Status = "up"
-		}
-	}
-
 	// Try reverse DNS
-	if device.Status == "up" {
+	if len(device.Ports) > 0 {
 		names, err := net.LookupAddr(ip)
 		if err == nil && len(names) > 0 {
 			device.Hostname = strings.TrimSuffix(names[0], ".")
@@ -260,34 +246,292 @@ func probeHost(ip string) Device {
 	return device
 }
 
-func ping(host string) bool {
-	conn, err := net.DialTimeout("icmp", host, timeout)
-	if err == nil {
-		conn.Close()
-		return true
-	}
-	return false
+// arpScan uses gopacket to send ARP requests to all hosts
+// This is the most reliable method for local network discovery
+func arpScan(hosts []string) chan string {
+	results := make(chan string, 256)
+
+	go func() {
+		defer close(results)
+
+		// Find network interface
+		iface, err := findInterface()
+		if err != nil {
+			fmt.Printf("ARP scan failed: %v\n", err)
+			return
+		}
+
+		// Get source IP and MAC
+		srcIP := getInterfaceIP(iface)
+		srcMAC := getInterfaceMAC(iface)
+		if srcIP == nil || srcMAC == nil {
+			fmt.Println("ARP scan failed: could not get interface info")
+			return
+		}
+
+		// Open handle for sending and receiving
+		handle, err := pcap.OpenLive(iface.Name, 65536, true, pcap.BlockForever)
+		if err != nil {
+			// Silently fail - will use UDP/TCP fallback
+			return
+		}
+		defer handle.Close()
+
+		// Set filter for ARP responses
+		handle.SetBPFFilter("arp")
+
+		// Create ARP packet for each IP
+		for _, targetIP := range hosts {
+			sendARPRequest(handle, iface.Name, srcMAC, srcIP, net.ParseIP(targetIP))
+			select {
+			case results <- targetIP:
+			default:
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		// Wait for responses
+		packetSource := gopacket.NewPacketSource(handle, layers.LayerTypeEthernet)
+		respChan := packetSource.Packets()
+
+		timer := time.NewTimer(3 * time.Second)
+		defer timer.Stop()
+
+		for {
+			select {
+			case packet := <-respChan:
+				if packet == nil {
+					continue
+				}
+				arpLayer := packet.Layer(layers.LayerTypeARP)
+				if arpLayer != nil {
+					arp := arpLayer.(*layers.ARP)
+					if arp.Operation == 2 { // ARP Reply
+						ip := net.IP(arp.SourceProtAddress).String()
+						select {
+						case results <- ip:
+						default:
+						}
+					}
+				}
+			case <-timer.C:
+				return
+			}
+		}
+	}()
+
+	return results
 }
 
-func loadNeighborTable() map[string]bool {
-	result := make(map[string]bool)
-
-	cmd := exec.Command("ip", "neigh")
-	output, err := cmd.Output()
+func findInterface() (*net.Interface, error) {
+	ifaces, err := net.Interfaces()
 	if err != nil {
-		return result
+		return nil, err
 	}
 
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			ip := fields[0]
-			if net.ParseIP(ip) != nil {
-				result[ip] = true
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+			return &iface, nil
+		}
+	}
+	return nil, fmt.Errorf("no suitable network interface found")
+}
+
+func getInterfaceIP(iface *net.Interface) net.IP {
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return nil
+	}
+	for _, addr := range addrs {
+		if ip, _, err := net.ParseCIDR(addr.String()); err == nil {
+			if ip.To4() != nil {
+				return ip
 			}
 		}
 	}
+	return nil
+}
 
-	return result
+func getInterfaceMAC(iface *net.Interface) net.HardwareAddr {
+	return iface.HardwareAddr
+}
+
+func sendARPRequest(handle *pcap.Handle, ifaceName string, srcMAC net.HardwareAddr, srcIP, targetIP net.IP) {
+	// Convert MAC to byte array
+	mac := [6]byte{}
+	copy(mac[:], srcMAC[:6])
+
+	arp := layers.ARP{
+		AddrType:          layers.LinkTypeEthernet,
+		Protocol:          layers.EthernetTypeIPv4,
+		HwAddressSize:     6,
+		ProtAddressSize:   4,
+		Operation:         1, // ARP Request
+		SourceHwAddress:   mac[:],
+		SourceProtAddress: srcIP.To4(),
+		DstHwAddress:      []byte{0, 0, 0, 0, 0, 0},
+		DstProtAddress:    targetIP.To4(),
+	}
+
+	buf := gopacket.NewSerializeBuffer()
+	gopacket.SerializeLayers(buf, gopacket.SerializeOptions{
+		FixLengths: true,
+	}, &arp)
+
+	handle.WritePacketData(buf.Bytes())
+}
+
+// udpProbeScan sends UDP packets to trigger ARP responses
+// This works without root privileges
+func udpProbeScan(hosts []string) chan string {
+	results := make(chan string, 256)
+
+	go func() {
+		defer close(results)
+
+		// Common ports that might trigger responses
+		ports := []int{80, 443, 53, 123, 161}
+
+		for _, ip := range hosts {
+			for _, port := range ports {
+				addr := fmt.Sprintf("%s:%d", ip, port)
+				conn, err := net.DialTimeout("udp", addr, 100*time.Millisecond)
+				if err == nil {
+					conn.Close()
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		// Check ARP table for new entries
+		cmd := exec.Command("ip", "neigh")
+		output, err := cmd.Output()
+		if err != nil {
+			return
+		}
+
+		hostsMap := make(map[string]bool)
+		for _, h := range hosts {
+			hostsMap[h] = true
+		}
+
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				ip := fields[0]
+				if hostsMap[ip] && net.ParseIP(ip) != nil {
+					select {
+					case results <- ip:
+					default:
+					}
+				}
+			}
+		}
+	}()
+
+	return results
+}
+
+// mDNSScan discovers devices using mDNS (Multicast DNS)
+func mDNSScan() chan string {
+	results := make(chan string, 256)
+
+	go func() {
+		defer close(results)
+
+		mdnsAddr := &net.UDPAddr{
+			IP:   net.IP{224, 0, 0, 251},
+			Port: 5353,
+		}
+
+		conn, err := net.ListenMulticastUDP("udp4", nil, mdnsAddr)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+		query := []byte{
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		}
+
+		for i := 0; i < 3; i++ {
+			conn.WriteToUDP(query, mdnsAddr)
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		buffer := make([]byte, 65536)
+		for {
+			n, addr, err := conn.ReadFromUDP(buffer)
+			if err != nil {
+				break
+			}
+			if n > 0 {
+				ip := addr.IP.String()
+				if isValidIP(ip) {
+					select {
+					case results <- ip:
+					default:
+					}
+				}
+			}
+		}
+	}()
+
+	return results
+}
+
+// ssdpScan discovers devices using SSDP
+func ssdpScan() chan string {
+	results := make(chan string, 256)
+
+	go func() {
+		defer close(results)
+
+		ssdpAddr := &net.UDPAddr{
+			IP:   net.IP{239, 255, 255, 250},
+			Port: 1900,
+		}
+
+		conn, err := net.ListenMulticastUDP("udp4", nil, ssdpAddr)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+		query := []byte("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 3\r\nST: ssdp:all\r\n\r\n")
+
+		for i := 0; i < 3; i++ {
+			conn.WriteToUDP(query, ssdpAddr)
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		buffer := make([]byte, 65536)
+		for {
+			n, addr, err := conn.ReadFromUDP(buffer)
+			if err != nil {
+				break
+			}
+			if n > 0 {
+				ip := addr.IP.String()
+				if isValidIP(ip) {
+					select {
+					case results <- ip:
+					default:
+					}
+				}
+			}
+		}
+	}()
+
+	return results
+}
+
+func isValidIP(ip string) bool {
+	parsed := net.ParseIP(ip)
+	return parsed != nil && parsed.To4() != nil
 }
