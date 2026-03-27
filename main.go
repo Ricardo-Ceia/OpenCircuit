@@ -59,7 +59,7 @@ func main() {
 func runScan(cidr string) {
 	devices, err := scan.Run(cidr, func(ip string) {
 		if !quietFlag {
-			fmt.Fprintf(os.Stderr, "[scan] probing %s\n", ip)
+			fmt.Fprintf(os.Stderr, "Scanning %s...\n", ip)
 		}
 	})
 
@@ -75,31 +75,25 @@ func runScan(cidr string) {
 		}
 	}
 
-	fmt.Printf("scanned_hosts=%d shown=%d\n", len(devices), len(filtered))
+	fmt.Printf("\nFound %d devices:\n\n", len(filtered))
 
 	for _, d := range filtered {
-		hostname := d.Hostname
-		if hostname == "" {
-			hostname = "-"
+		fmt.Printf("✓ %s\n", d.DisplayName())
+		fmt.Printf("  IP: %s\n", d.IP)
+
+		if d.MAC != "" {
+			fmt.Printf("  MAC: %s\n", d.MAC)
 		}
-		mac := d.MAC
-		if mac == "" {
-			mac = "-"
+
+		if d.Services != nil && len(d.Services) > 0 {
+			fmt.Printf("  Services: %s\n", strings.Join(d.Services, ", "))
 		}
-		vendor := d.Vendor
-		if vendor == "" {
-			vendor = "-"
-		}
-		deviceType := d.DeviceType
-		if deviceType == "" {
-			deviceType = "-"
-		}
-		ports := "-"
+
 		if len(d.Ports) > 0 {
-			ports = intsToString(d.Ports)
+			fmt.Printf("  Ports: %s\n", intsToString(d.Ports))
 		}
-		fmt.Printf("ip=%s status=%s hostname=%s mac=%s vendor=%s type=%s ports=%s\n",
-			d.IP, d.Status, hostname, mac, vendor, deviceType, ports)
+
+		fmt.Println()
 	}
 }
 
