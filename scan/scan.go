@@ -3,7 +3,6 @@ package scan
 import (
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -25,7 +24,6 @@ var (
 )
 
 func Run(cidr string, progressCB progressCallback) ([]Device, error) {
-
 	hosts, err := expandHosts(cidr)
 	if err != nil {
 		return nil, err
@@ -35,37 +33,141 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 		return nil, fmt.Errorf("no hosts to scan")
 	}
 
-	neighborIPs := loadNeighborTable()
-	dhcpHosts := loadDHCPLeases()
-
+	deviceMap := make(map[string]Device)
+	var mu sync.Mutex
 	var wg sync.WaitGroup
-	results := make(chan Device, len(hosts))
-	sem := make(chan struct{}, 64)
 
-	for _, ip := range hosts {
-		wg.Add(1)
-		sem <- struct{}{}
-
-		go func(ip string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if progressCB != nil {
-				progressCB(ip)
+	// Quick: Check ARP neighbor table first (fastest)
+	// Only include neighbors that are in our scan range
+	neighborIPs := loadNeighborTable()
+	hostsMap := make(map[string]bool)
+	for _, h := range hosts {
+		hostsMap[h] = true
+	}
+	for ip := range neighborIPs {
+		if hostsMap[ip] {
+			mu.Lock()
+			if _, exists := deviceMap[ip]; !exists {
+				deviceMap[ip] = Device{IP: ip, Status: "recently_seen"}
 			}
-			device := probeHost(ip, neighborIPs, dhcpHosts)
-			if device.Status != "" {
-				results <- device
-			}
-		}(ip)
+			mu.Unlock()
+		}
 	}
 
+	// Always add localhost if in range (common case)
+	if hostsMap["127.0.0.1"] {
+		mu.Lock()
+		if _, exists := deviceMap["127.0.0.1"]; !exists {
+			deviceMap["127.0.0.1"] = Device{IP: "127.0.0.1", Status: "up"}
+		}
+		mu.Unlock()
+	}
+
+	// Run discovery methods in parallel
+	// Method 1: ARP scan (probes to populate neighbor cache)
+	wg.Add(1)
 	go func() {
-		wg.Wait()
-		close(results)
+		defer wg.Done()
+		for ip := range arpScan(hosts) {
+			mu.Lock()
+			if existing, ok := deviceMap[ip]; ok {
+				existing.Status = "up"
+				deviceMap[ip] = existing
+			} else {
+				deviceMap[ip] = Device{IP: ip, Status: "up"}
+			}
+			mu.Unlock()
+		}
 	}()
 
+	// Method 2: mDNS scan (finds Apple devices, Chromecast, etc)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ip := range mDNSScan() {
+			mu.Lock()
+			if existing, ok := deviceMap[ip]; ok {
+				existing.Status = "up"
+				deviceMap[ip] = existing
+			} else {
+				deviceMap[ip] = Device{IP: ip, Status: "up"}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	// Method 3: SSDP scan (finds TVs, consoles, routers)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ip := range ssdpScan() {
+			mu.Lock()
+			if existing, ok := deviceMap[ip]; ok {
+				existing.Status = "up"
+				deviceMap[ip] = existing
+			} else {
+				deviceMap[ip] = Device{IP: ip, Status: "up"}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	// Method 4: TCP probe (finds devices with open ports)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sem := make(chan struct{}, 64)
+		var probeWg sync.WaitGroup
+
+		for _, ip := range hosts {
+			probeWg.Add(1)
+			sem <- struct{}{}
+
+			go func(ip string) {
+				defer probeWg.Done()
+				defer func() { <-sem }()
+
+				if progressCB != nil {
+					progressCB(ip)
+				}
+
+				device := probeHost(ip)
+				if device.Status != "" {
+					mu.Lock()
+					if existing, ok := deviceMap[ip]; ok {
+						existing.Status = device.Status
+						existing.Ports = device.Ports
+						if device.Hostname != "" {
+							existing.Hostname = device.Hostname
+						}
+						deviceMap[ip] = existing
+					} else {
+						deviceMap[ip] = device
+					}
+					mu.Unlock()
+				}
+			}(ip)
+		}
+
+		probeWg.Wait()
+	}()
+
+	wg.Wait()
+
+	// Final fallback: ICMP ping sweep if no devices found
+	mu.Lock()
+	if len(deviceMap) == 0 {
+		for _, ip := range hosts {
+			if ping(ip) {
+				deviceMap[ip] = Device{IP: ip, Status: "up"}
+			}
+		}
+	}
+	mu.Unlock()
+
+	// Convert map to slice
 	var devices []Device
-	for d := range results {
+	for _, d := range deviceMap {
 		devices = append(devices, d)
 	}
 
@@ -90,7 +192,6 @@ func expandHosts(cidrStr string) ([]string, error) {
 
 	var hosts []string
 
-	// Handle special cases
 	if prefix == 32 {
 		return []string{networkIP.String()}, nil
 	}
@@ -127,23 +228,8 @@ func uint32ToIP(n uint32) net.IP {
 	return ip.To4()
 }
 
-func probeHost(ip string, neighborIPs map[string]bool, dhcpHosts map[string]string) Device {
+func probeHost(ip string) Device {
 	device := Device{IP: ip}
-
-	// Check neighbor table first (fastest)
-	if neighborIPs[ip] {
-		device.Status = "up"
-		device.Ports = []int{}
-		return device
-	}
-
-	// Check DHCP leases
-	if hostname, ok := dhcpHosts[ip]; ok {
-		device.Status = "recently_seen"
-		device.Hostname = hostname
-		device.Ports = []int{}
-		return device
-	}
 
 	// TCP probe common ports
 	for _, port := range defaultPorts {
@@ -156,7 +242,7 @@ func probeHost(ip string, neighborIPs map[string]bool, dhcpHosts map[string]stri
 		}
 	}
 
-	// Try ping as fallback
+	// Try ICMP ping as fallback
 	if device.Status == "" {
 		if ping(ip) {
 			device.Status = "up"
@@ -171,16 +257,16 @@ func probeHost(ip string, neighborIPs map[string]bool, dhcpHosts map[string]stri
 		}
 	}
 
-	if device.Status == "" {
-		device.Status = ""
-	}
-
 	return device
 }
 
 func ping(host string) bool {
-	cmd := exec.Command("ping", "-c", "1", "-W", "1", host)
-	return cmd.Run() == nil
+	conn, err := net.DialTimeout("icmp", host, timeout)
+	if err == nil {
+		conn.Close()
+		return true
+	}
+	return false
 }
 
 func loadNeighborTable() map[string]bool {
@@ -199,37 +285,6 @@ func loadNeighborTable() map[string]bool {
 			ip := fields[0]
 			if net.ParseIP(ip) != nil {
 				result[ip] = true
-			}
-		}
-	}
-
-	return result
-}
-
-func loadDHCPLeases() map[string]string {
-	result := make(map[string]string)
-
-	paths := []string{
-		"/var/lib/misc/dnsmasq.leases",
-		"/tmp/dhcp.leases",
-		"/tmp/udhcpd.leases",
-	}
-
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			fields := strings.Fields(line)
-			if len(fields) >= 4 {
-				ip := fields[2]
-				hostname := fields[3]
-				if hostname != "*" && net.ParseIP(ip) != nil {
-					result[ip] = hostname
-				}
 			}
 		}
 	}
