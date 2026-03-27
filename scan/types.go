@@ -71,3 +71,35 @@ func ParseFriendlyName(parts ...string) string {
 	}
 	return strings.Join(valid, " ")
 }
+
+func buildFriendlyName(d Device) string {
+	if d.FriendlyName != "" {
+		return d.FriendlyName
+	}
+
+	if d.UPnPInfo != "" {
+		return d.UPnPInfo
+	}
+
+	if d.HTTPInfo != "" {
+		return d.HTTPInfo
+	}
+
+	if d.Hostname != "" && !strings.HasSuffix(d.Hostname, ".local") {
+		return d.Hostname
+	}
+
+	if d.Services != nil && len(d.Services) > 0 {
+		serviceName := d.Services[0]
+		if d.Vendor != "" {
+			return d.Vendor + " " + serviceName
+		}
+		return serviceName
+	}
+
+	if d.Vendor != "" {
+		return d.Vendor
+	}
+
+	return d.IP
+}

@@ -73,6 +73,31 @@ func TestInferDeviceType(t *testing.T) {
 	}
 }
 
+func TestBuildFriendlyName(t *testing.T) {
+	tests := []struct {
+		name string
+		device Device
+		want  string
+	}{
+		{"mDNS service name", Device{FriendlyName: "Living Room", Services: []string{"AirPlay"}}, "Living Room"},
+		{"UPnP name", Device{UPnPInfo: "Samsung Smart TV", Services: []string{}}, "Samsung Smart TV"},
+		{"HTTP info", Device{HTTPInfo: "TP-Link - Admin", Services: []string{}}, "TP-Link - Admin"},
+		{"hostname without .local", Device{Hostname: "desktop-pc", Services: []string{}}, "desktop-pc"},
+		{"vendor + service", Device{Vendor: "Apple", Services: []string{"AirPlay"}}, "Apple AirPlay"},
+		{"vendor only", Device{Vendor: "Samsung", Services: []string{}}, "Samsung"},
+		{"IP fallback", Device{IP: "192.168.1.100"}, "192.168.1.100"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildFriendlyName(tt.device)
+			if got != tt.want {
+				t.Errorf("buildFriendlyName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeviceDisplayName(t *testing.T) {
 	tests := []struct {
 		name string

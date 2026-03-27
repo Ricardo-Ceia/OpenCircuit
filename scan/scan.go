@@ -53,19 +53,55 @@ func Run(cidr string, progressCB progressCallback) ([]Device, error) {
 		}
 	}
 
-	// TCP port scan for each host
+	// TCP port scan for each host + HTTP/UPnP/mDNS service probes
 	for _, ip := range hosts {
 		if progressCB != nil {
 			progressCB(ip)
 		}
 
 		device := probeHost(ip)
+
+		httpInfo := probeHTTP(ip)
+		if httpInfo.Server != "" {
+			device.HTTPInfo = httpInfo.Server
+			if httpInfo.Title != "" {
+				device.HTTPInfo += " - " + httpInfo.Title
+			}
+		}
+
+		upnpInfo := probeUPnP(ip)
+		if upnpInfo.FriendlyName != "" {
+			device.UPnPInfo = upnpInfo.FriendlyName
+		}
+
+		mdnsInfo := probeMDNSService(ip)
+		if mdnsInfo.Service != "" {
+			device.Services = append(device.Services, mdnsInfo.Service)
+			if mdnsInfo.Name != "" {
+				device.FriendlyName = mdnsInfo.Name
+			}
+		}
+
+		device.FriendlyName = buildFriendlyName(device)
+
 		if device.Status != "" {
 			if existing, ok := deviceMap[ip]; ok {
 				existing.Status = device.Status
 				existing.Ports = device.Ports
 				if device.Hostname != "" {
 					existing.Hostname = device.Hostname
+				}
+				if device.FriendlyName != "" {
+					existing.FriendlyName = device.FriendlyName
+				}
+				if device.HTTPInfo != "" {
+					existing.HTTPInfo = device.HTTPInfo
+				}
+				if device.UPnPInfo != "" {
+					existing.UPnPInfo = device.UPnPInfo
+				}
+				if len(device.Services) > 0 {
+					existing.Services = device.Services
 				}
 				deviceMap[ip] = existing
 			} else {
