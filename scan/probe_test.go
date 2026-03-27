@@ -166,3 +166,37 @@ X-USER-AGENT: Samsung MRD`
 		}
 	})
 }
+
+func TestMDNSServiceParsing(t *testing.T) {
+	t.Run("splitByDot", func(t *testing.T) {
+		tests := []struct {
+			input string
+			want  []string
+		}{
+			{"hello.world", []string{"hello", "world"}},
+			{"single", []string{"single"}},
+			{"a.b.c", []string{"a", "b", "c"}},
+		}
+		for _, tt := range tests {
+			got := splitByDot(tt.input)
+			if len(got) != len(tt.want) {
+				t.Errorf("len = %d, want %d", len(got), len(tt.want))
+			}
+		}
+	})
+
+	t.Run("parse mDNS service info", func(t *testing.T) {
+		info := mDNSServiceInfo{
+			Name:    "livingroom",
+			Service: "AirPlay",
+			Hostname: "livingroom.local",
+		}
+
+		if info.Service != "AirPlay" {
+			t.Errorf("Service = %q, want AirPlay", info.Service)
+		}
+		if info.Name != "livingroom" {
+			t.Errorf("Name = %q, want livingroom", info.Name)
+		}
+	})
+}

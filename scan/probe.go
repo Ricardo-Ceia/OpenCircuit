@@ -3,6 +3,7 @@ package scan
 import (
 	"fmt"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -296,4 +297,171 @@ func deviceTypeToName(dt string) string {
 
 func contains(s, substr string) bool {
 	return find(s, substr) != -1
+}
+
+type mDNSServiceInfo struct {
+	Name      string
+	Service   string
+	Hostname  string
+}
+
+var mDNSServices = []string{
+	"_airplay._tcp",
+	"_googlecast._tcp",
+	"_http._tcp",
+	"_homekit._tcp",
+	"_hap._tcp",
+	"_printer._tcp",
+	"_ipp._tcp",
+	"_smb._tcp",
+}
+
+func probeMDNSService(ip string) mDNSServiceInfo {
+	info := mDNSServiceInfo{}
+
+	mdnsAddr := &net.UDPAddr{
+		IP:   net.IP{224, 0, 0, 251},
+		Port: 5353,
+	}
+
+	conn, err := net.ListenMulticastUDP("udp4", nil, mdnsAddr)
+	if err != nil {
+		return info
+	}
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	for _, service := range mDNSServices {
+		query := buildMDNSQuery(service)
+		for i := 0; i < 2; i++ {
+			conn.WriteToUDP(query, mdnsAddr)
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	buffer := make([]byte, 65536)
+	for {
+		n, addr, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			break
+		}
+		if n > 0 && addr.IP.String() == ip {
+			info = parseMDNSServiceResponse(buffer[:n])
+			if info.Service != "" {
+				break
+			}
+		}
+	}
+
+	return info
+}
+
+func buildMDNSQuery(service string) []byte {
+	name := service
+	if !contains(name, ".local") {
+		name = name + ".local"
+	}
+
+	query := make([]byte, 12)
+	query[0] = 0x00
+	query[1] = 0x00
+	query[2] = 0x00
+	query[3] = 0x00
+	query[4] = 0x00
+	query[5] = 0x01
+	query[6] = 0x00
+	query[7] = 0x00
+	query[8] = 0x00
+	query[9] = 0x00
+	query[10] = 0x00
+	query[11] = 0x00
+
+	labels := splitByDot(name)
+	for _, label := range labels {
+		query = append(query, byte(len(label)))
+		query = append(query, []byte(label)...)
+	}
+	query = append(query, 0x00)
+
+	query = append(query, 0x00, 0x0c)
+	query = append(query, 0x00, 0x01)
+
+	return query
+}
+
+func splitByDot(s string) []string {
+	var labels []string
+	var current string
+	for _, c := range s {
+		if c == '.' {
+			if current != "" {
+				labels = append(labels, current)
+				current = ""
+			}
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		labels = append(labels, current)
+	}
+	return labels
+}
+
+func parseMDNSServiceResponse(data []byte) mDNSServiceInfo {
+	info := mDNSServiceInfo{}
+	str := string(data)
+
+	for _, line := range splitLines(str) {
+		line = trimSpace(line)
+
+		if hasPrefixCI(line, "N") && contains(line, "PTR") {
+			parts := strings.Fields(line)
+			for i, p := range parts {
+				if p == "PTR" && i+1 < len(parts) {
+					name := parts[i+1]
+					name = trimSpace(name)
+					name = strings.TrimSuffix(name, ".")
+					name = strings.TrimSuffix(name, ".local")
+
+					if contains(name, "_airplay") {
+						info.Service = "AirPlay"
+					} else if contains(name, "_googlecast") {
+						info.Service = "Chromecast"
+					} else if contains(name, "_homekit") || contains(name, "_hap") {
+						info.Service = "HomeKit"
+					} else if contains(name, "_printer") || contains(name, "_ipp") {
+						info.Service = "Printer"
+					} else if contains(name, "_smb") {
+						info.Service = "File Sharing"
+					} else if contains(name, "_http") {
+						info.Service = "HTTP"
+					}
+
+					if info.Service != "" && !contains(name, "service") {
+						info.Name = name
+					}
+				}
+			}
+		}
+
+		if hasPrefixCI(line, "N") && contains(line, "SRV") {
+			parts := strings.Fields(line)
+			for i, p := range parts {
+				if p == "SRV" && i+3 < len(parts) {
+					info.Hostname = parts[i+3]
+					info.Hostname = trimSpace(info.Hostname)
+					info.Hostname = strings.TrimSuffix(info.Hostname, ".")
+					info.Hostname = strings.TrimSuffix(info.Hostname, ".local")
+				}
+			}
+		}
+	}
+
+	if info.Name == "" && info.Hostname != "" {
+		info.Name = info.Hostname
+	}
+
+	return info
 }
