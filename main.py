@@ -1,5 +1,6 @@
 import socket
 import subprocess
+import concurrent.futures
 
 def generate_ips(subnet: str)->list[str]:
     base_ip,prefix = subnet.split('/')
@@ -31,7 +32,23 @@ def ping_sweep(ips:list[str])->list[str]:
             res.append(ip)
     return res
 
+def ping_sweep_parallel(ips: list[str],workers: int=32)->list[str]:
+    res = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_ip = {executor.submit(ping_ip,ip): ip for ip in ips}
+
+        for future in concurrent.futures.as_completed(future_to_ip):
+            ip=future_to_ip[future]
+            print(f"pinging... IP:{ip}")
+            try:
+                if future.result():
+                    res.append(ip)
+            except:
+                pass
+    return res
+
 def main():
     ips_to_sweep = generate_ips("192.168.1.0/24")
-    print(ping_sweep(ips_to_sweep))
+    print(ping_sweep_parallel(ips_to_sweep))
 main()
