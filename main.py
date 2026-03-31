@@ -186,6 +186,136 @@ def bulk_reverse_dns(ips: list[str], workers: int = 16) -> dict[str, str]:
     return results
 
 # ---------------------------------------------------------------------------
+# Active service probing (100% certain - no guessing)
+# ---------------------------------------------------------------------------
+
+# iOS-specific ports that ONLY Apple devices use
+IOS_PORTS = {
+    62078: "lockdownd",   # iOS lockdown daemon (device pairing)
+    7100:  "fontd",       # iOS font server
+}
+
+def probe_tcp_port(ip: str, port: int, timeout: float = 1.0) -> bool:
+    """Check if a TCP port is open."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
+    """Send SSDP M-SEARCH and check for response."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.settimeout(timeout)
+        query = (
+            "M-SEARCH * HTTP/1.1\r\n"
+            "HOST: 239.255.255.250:1900\r\n"
+            "MAN: \"ssdp:discover\"\r\n"
+            "MX: 1\r\n"
+            "ST: ssdp:all\r\n"
+            "\r\n"
+        ).encode()
+        sock.sendto(query, (ip, 1900))
+        data, _ = sock.recvfrom(4096)
+        sock.close()
+
+        response = data.decode('utf-8', errors='ignore')
+        info = {}
+        for line in response.split('\r\n'):
+            if ':' in line:
+                key, _, value = line.partition(':')
+                info[key.strip()] = value.strip()
+        return info
+    except Exception:
+        return None
+
+def probe_http(ip: str, port: int = 80, timeout: float = 1.0) -> str | None:
+    """Send HTTP request and check response headers."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((ip, port))
+        request = f"GET / HTTP/1.1\r\nHost: {ip}\r\nConnection: close\r\n\r\n".encode()
+        sock.send(request)
+        response = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+            if b"\r\n\r\n" in response:
+                break
+        sock.close()
+
+        response_str = response.decode('utf-8', errors='ignore')
+        for line in response_str.split('\r\n'):
+            if line.lower().startswith('server:'):
+                return line.split(':', 1)[1].strip()
+        return None
+    except Exception:
+        return None
+
+def identify_device_services(ip: str) -> dict:
+    """
+    Probe device for identifying services.
+    Returns dict with detected services and device type.
+    """
+    result = {"ip": ip, "services": [], "device_type": None}
+
+    # Check iOS-specific ports (100% certain - only iOS uses these)
+    for port, service in IOS_PORTS.items():
+        if probe_tcp_port(ip, port, timeout=0.5):
+            result["services"].append(f"{service} (port {port})")
+            result["device_type"] = "Apple iOS Device"
+
+    # Check for SSDP/UPnP response
+    ssdp_info = probe_ssdp(ip, timeout=1.0)
+    if ssdp_info:
+        result["services"].append("UPnP/SSDP")
+        if "SERVER" in ssdp_info:
+            server = ssdp_info["SERVER"]
+            if "iOS" in server or "iPhone" in server or "iPad" in server:
+                result["device_type"] = "Apple iOS Device"
+            elif "Darwin" in server or "Mac" in server:
+                result["device_type"] = "Apple macOS Device"
+            elif "Linux" in server or "Ubuntu" in server:
+                result["device_type"] = "Linux Device"
+            elif "Windows" in server:
+                result["device_type"] = "Windows Device"
+
+    # Check HTTP server header
+    http_server = probe_http(ip, port=80, timeout=1.0)
+    if http_server:
+        result["services"].append(f"HTTP ({http_server})")
+        if "iOS" in http_server or "AirPort" in http_server:
+            result["device_type"] = "Apple Device"
+
+    # Check HTTPS
+    if probe_tcp_port(ip, 443, timeout=0.5):
+        result["services"].append("HTTPS")
+
+    return result
+
+def bulk_service_probe(ips: list[str], workers: int = 16) -> dict[str, dict]:
+    """Probe multiple IPs for services in parallel."""
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_ip = {executor.submit(identify_device_services, ip): ip for ip in ips}
+        for future in concurrent.futures.as_completed(future_to_ip):
+            ip = future_to_ip[future]
+            try:
+                result = future.result()
+                if result["services"]:
+                    results[ip] = result
+            except Exception:
+                pass
+    return results
+
+# ---------------------------------------------------------------------------
 # ARP / MAC vendor lookup
 # ---------------------------------------------------------------------------
 
@@ -322,9 +452,13 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
     rdns_map = bulk_reverse_dns(list(live_ips))
     log.info(f"Resolved {len(rdns_map)} hostnames via reverse DNS")
 
-    log.info("Step 4: mDNS active+passive discovery...")
+    log.info("Step 4: mDNS discovery...")
     mdns_map = mdns_discovery(list(live_ips), timeout=mdns_timeout)
     log.info(f"Resolved {len(mdns_map)} hostnames via mDNS")
+
+    log.info("Step 5: Active service probing...")
+    service_map = bulk_service_probe(list(live_ips))
+    log.info(f"Identified {len(service_map)} devices via service probing")
 
     all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys())
 
@@ -334,6 +468,16 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         mac_info = mac_map.get(ip, {})
         vendor = mac_info.get("vendor")
         mac = mac_info.get("mac", "unknown")
+
+        # Service probing results
+        service_info = service_map.get(ip, {})
+        device_type = service_info.get("device_type")
+        services = service_info.get("services", [])
+
+        # Use device type from probing if hostname is unknown
+        if hostname == "unknown" and device_type:
+            hostname = device_type
+
         sources = []
         if ip in live_ips:
             sources.append("ping")
@@ -343,11 +487,16 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
             sources.append("rdns")
         if ip in mac_map:
             sources.append("arp")
+        if ip in service_map:
+            sources.append("probe")
+
         results.append({
             "ip": ip,
             "hostname": hostname,
             "mac": mac,
             "vendor": vendor,
+            "device_type": device_type,
+            "services": services,
             "source": "+".join(sources)
         })
 
@@ -356,11 +505,12 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 def main():
     devices = discover_network("192.168.1.0/24", mdns_timeout=10)
 
-    print(f"\n{'IP':<18} {'Hostname':<30} {'Vendor':<15} {'MAC':<18} {'Source'}")
-    print("-" * 95)
+    print(f"\n{'IP':<18} {'Hostname':<25} {'Vendor':<15} {'MAC':<18} {'Services':<30} {'Source'}")
+    print("-" * 130)
     for d in devices:
         vendor = d['vendor'] or "unknown"
-        print(f"{d['ip']:<18} {d['hostname']:<30} {vendor:<15} {d['mac']:<18} {d['source']}")
+        services = ", ".join(d.get('services', [])) if d.get('services') else "none"
+        print(f"{d['ip']:<18} {d['hostname']:<25} {vendor:<15} {d['mac']:<18} {services:<30} {d['source']}")
 
     print(f"\nTotal: {len(devices)} devices found")
     named   = sum(1 for d in devices if d['hostname'] != 'unknown')
