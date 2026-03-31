@@ -264,12 +264,190 @@ def probe_http(ip: str, port: int = 80, timeout: float = 1.0) -> str | None:
     except Exception:
         return None
 
+def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
+    """
+    Fetch full HTTP response and extract useful info.
+    Returns dict with headers, title, and body snippet.
+    """
+    result = {"server": None, "title": None, "headers": {}, "body_snippet": ""}
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((ip, port))
+        request = f"GET / HTTP/1.1\r\nHost: {ip}\r\nConnection: close\r\n\r\n".encode()
+        sock.send(request)
+        response = b""
+        while True:
+            chunk = sock.recv(8192)
+            if not chunk:
+                break
+            response += chunk
+            if b"\r\n\r\n" in response and len(response) > 1000:
+                break
+        sock.close()
+
+        response_str = response.decode('utf-8', errors='ignore')
+        
+        # Parse headers
+        if "\r\n\r\n" in response_str:
+            header_part, body = response_str.split("\r\n\r\n", 1)
+            result["body_snippet"] = body[:500]
+            
+            for line in header_part.split('\r\n'):
+                if ':' in line:
+                    key, _, value = line.partition(':')
+                    result["headers"][key.strip().lower()] = value.strip()
+                    if key.strip().lower() == 'server':
+                        result["server"] = value.strip()
+        else:
+            result["body_snippet"] = response_str[:500]
+
+        # Extract title
+        import re
+        title_match = re.search(r'<title[^>]*>(.*?)</title>', response_str, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            result["title"] = title_match.group(1).strip()
+
+    except Exception:
+        pass
+    return result
+
+def fetch_upnp_description(location_url: str, timeout: float = 2.0) -> dict:
+    """
+    Fetch and parse UPnP device description XML.
+    Returns dict with manufacturer, model, friendlyName, etc.
+    """
+    result = {
+        "manufacturer": None,
+        "model_name": None,
+        "model_number": None,
+        "friendly_name": None,
+        "device_type": None,
+        "serial_number": None,
+        "udn": None,
+    }  # type: dict[str, str | None]
+    
+    try:
+        # Parse URL
+        if not location_url.startswith('http://'):
+            return result
+        
+        url_part = location_url[7:]  # Remove http://
+        if '/' in url_part:
+            host_port, path = url_part.split('/', 1)
+            path = '/' + path
+        else:
+            host_port = url_part
+            path = '/'
+        
+        if ':' in host_port:
+            host, port_str = host_port.split(':', 1)
+            port = int(port_str)
+        else:
+            host = host_port
+            port = 80
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode()
+        sock.send(request)
+        
+        response = b""
+        while True:
+            chunk = sock.recv(8192)
+            if not chunk:
+                break
+            response += chunk
+            if b"\r\n\r\n" in response and len(response) > 500:
+                break
+        sock.close()
+
+        response_str = response.decode('utf-8', errors='ignore')
+        
+        # Extract XML body (after headers)
+        if "\r\n\r\n" in response_str:
+            xml = response_str.split("\r\n\r\n", 1)[1]
+        else:
+            xml = response_str
+
+        # Parse XML fields using regex (simple and reliable for UPnP)
+        import re
+        fields = {
+            "manufacturer": "manufacturer",
+            "model_name": "modelName",
+            "model_number": "modelNumber",
+            "friendly_name": "friendlyName",
+            "device_type": "deviceType",
+            "serial_number": "serialNumber",
+            "udn": "UDN",
+        }
+        
+        for key, tag in fields.items():
+            match = re.search(f'<{tag}>(.*?)</{tag}>', xml, re.IGNORECASE | re.DOTALL)
+            if match:
+                result[key] = match.group(1).strip()
+
+    except Exception:
+        pass
+    
+    return result
+
+def build_fingerprint(ip: str, ssdp_info: dict, http_info: dict, upnp_info: dict) -> dict:
+    """
+    Combine all probing signals into a unified device fingerprint.
+    Returns dict with manufacturer, model, friendly_name, device_type.
+    """
+    fingerprint: dict = {
+        "manufacturer": None,
+        "model": None,
+        "friendly_name": None,
+        "device_type": None,
+        "model_number": None,
+    }
+
+    # UPnP XML has the most detailed info
+    if upnp_info:
+        fingerprint["manufacturer"] = upnp_info.get("manufacturer")
+        fingerprint["model"] = upnp_info.get("model_name")
+        fingerprint["friendly_name"] = upnp_info.get("friendly_name")
+        fingerprint["model_number"] = upnp_info.get("model_number")
+        
+        # Parse device type from UPnP (e.g., "urn:schemas-upnp-org:device:MediaRenderer:1")
+        device_type = upnp_info.get("device_type", "")
+        if device_type:
+            # Extract the type part (e.g., "MediaRenderer")
+            parts = device_type.split(':')
+            if len(parts) >= 2:
+                fingerprint["device_type"] = parts[-2]
+
+    # HTTP title as fallback for friendly name
+    if not fingerprint["friendly_name"] and http_info.get("title"):
+        fingerprint["friendly_name"] = http_info["title"]
+
+    # SSDP SERVER header as fallback for manufacturer
+    if not fingerprint["manufacturer"] and ssdp_info:
+        server = ssdp_info.get("SERVER", "")
+        if server:
+            # Try to extract manufacturer from server string
+            # e.g., "Linux/3.10.0 UPnP/1.0" or "Microsoft-Windows/10.0"
+            if "Microsoft" in server:
+                fingerprint["manufacturer"] = "Microsoft"
+            elif "Linux" in server:
+                fingerprint["manufacturer"] = "Linux Device"
+            elif "Darwin" in server or "Mac" in server:
+                fingerprint["manufacturer"] = "Apple"
+            elif "iOS" in server or "iPhone" in server:
+                fingerprint["manufacturer"] = "Apple"
+
+    return fingerprint
+
 def identify_device_services(ip: str) -> dict:
     """
-    Probe device for identifying services.
-    Returns dict with detected services and device type.
+    Probe device for identifying services and build fingerprint.
+    Returns dict with detected services, device type, and fingerprint.
     """
-    result = {"ip": ip, "services": [], "device_type": None}
+    result = {"ip": ip, "services": [], "device_type": None, "fingerprint": {}}
 
     # Check iOS-specific ports (100% certain - only iOS uses these)
     for port, service in IOS_PORTS.items():
@@ -292,16 +470,35 @@ def identify_device_services(ip: str) -> dict:
             elif "Windows" in server:
                 result["device_type"] = "Windows Device"
 
-    # Check HTTP server header
-    http_server = probe_http(ip, port=80, timeout=1.0)
-    if http_server:
-        result["services"].append(f"HTTP ({http_server})")
-        if "iOS" in http_server or "AirPort" in http_server:
+    # Fetch full HTTP info (title + headers)
+    http_info = fetch_http_full(ip, port=80, timeout=1.5)
+    if http_info.get("server"):
+        result["services"].append(f"HTTP ({http_info['server']})")
+        if "iOS" in http_info["server"] or "AirPort" in http_info["server"]:
             result["device_type"] = "Apple Device"
+    if http_info.get("title"):
+        result["services"].append(f"Title: {http_info['title']}")
 
     # Check HTTPS
     if probe_tcp_port(ip, 443, timeout=0.5):
         result["services"].append("HTTPS")
+
+    # Fetch UPnP description if LOCATION header present
+    upnp_info = {}
+    if ssdp_info and "LOCATION" in ssdp_info:
+        upnp_info = fetch_upnp_description(ssdp_info["LOCATION"], timeout=2.0)
+        if upnp_info.get("manufacturer"):
+            result["services"].append(f"UPnP: {upnp_info['manufacturer']}")
+
+    # Build unified fingerprint
+    fingerprint = build_fingerprint(ip, ssdp_info or {}, http_info, upnp_info)
+    result["fingerprint"] = fingerprint
+
+    # Use fingerprint for device type if available
+    if fingerprint.get("device_type") and not result["device_type"]:
+        result["device_type"] = fingerprint["device_type"]
+    elif fingerprint.get("manufacturer") and not result["device_type"]:
+        result["device_type"] = fingerprint["manufacturer"]
 
     return result
 
@@ -466,7 +663,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
     service_map = bulk_service_probe(list(live_ips))
     log.info(f"Identified {len(service_map)} devices via service probing")
 
-    all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys()) | set(service_map.keys()) | set(service_map.keys())
+    all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys()) | set(service_map.keys())
 
     results = []
     for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
@@ -478,8 +675,14 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         service_info = service_map.get(ip, {})
         device_type = service_info.get("device_type")
         services = service_info.get("services", [])
+        fingerprint = service_info.get("fingerprint", {})
 
-        if hostname == "unknown" and device_type:
+        # Use fingerprint for better display name
+        if fingerprint.get("friendly_name"):
+            hostname = fingerprint["friendly_name"]
+        elif fingerprint.get("manufacturer") and fingerprint.get("model"):
+            hostname = f"{fingerprint['manufacturer']} {fingerprint['model']}"
+        elif hostname == "unknown" and device_type:
             hostname = device_type
 
         sources = []
@@ -495,6 +698,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
             "mac": mac,
             "vendor": vendor,
             "device_type": device_type,
+            "fingerprint": fingerprint,
             "services": services,
             "source": "+".join(sources)
         })
@@ -553,6 +757,14 @@ def print_display(history: dict, scan_count: int):
         sources = d.get('sources', d.get('source', []))
         if isinstance(sources, str):
             sources = sources.split('+') if sources else []
+        
+        # Show fingerprint info if available
+        fingerprint = d.get('fingerprint', {})
+        if fingerprint and fingerprint.get('manufacturer'):
+            model_str = fingerprint['manufacturer']
+            if fingerprint.get('model'):
+                model_str += f" {fingerprint['model']}"
+            vendor = model_str
 
         print(f"{d['ip']:<18} {d['hostname']:<25} {status:<10} {last_seen:<12} {vendor:<15} {mac:<18} {'+'.join(sources)}")
 

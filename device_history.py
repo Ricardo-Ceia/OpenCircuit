@@ -35,7 +35,7 @@ def save_history(history: dict, filepath=HISTORY_FILE):
     with open(abs_path, 'w') as f:
         json.dump(history, f, indent=2)
 
-def clean_expired_devices(history: dict, retention_hours: int = None) -> list[str]:
+def clean_expired_devices(history: dict, retention_hours: int | None = None) -> list[str]:
     """
     Remove devices older than retention period.
     Returns list of removed IPs.
@@ -66,7 +66,7 @@ def get_history_stats(history: dict) -> dict:
         "named": sum(1 for d in history.values() if d.get("hostname", "unknown") != "unknown"),
     }
 
-def merge_scan(current_scan: list[dict], history: dict, retention_hours: int = None) -> dict:
+def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | None = None) -> dict:
     """
     Merge current scan results with history.
     - Updates last_seen for devices found in current scan
@@ -100,6 +100,11 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int = N
             history[ip]["sources"] = device.get("source", history[ip].get("sources", []))
             history[ip]["services"] = device.get("services", history[ip].get("services", []))
             history[ip]["status"] = "online"
+            
+            # Update fingerprint if available and has data
+            fingerprint = device.get("fingerprint", {})
+            if fingerprint and fingerprint.get("manufacturer"):
+                history[ip]["fingerprint"] = fingerprint
         else:
             # New device
             history[ip] = {
@@ -109,6 +114,7 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int = N
                 "vendor": device.get("vendor"),
                 "sources": device.get("source", []),
                 "services": device.get("services", []),
+                "fingerprint": device.get("fingerprint", {}),
                 "first_seen": now,
                 "last_seen": now,
                 "status": "online"

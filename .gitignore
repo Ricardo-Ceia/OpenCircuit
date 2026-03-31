@@ -2,4 +2,5 @@
 LOCAL_ROUTER_SETUP.md
 devices.json
 future_things.md
+__pycache__
 
