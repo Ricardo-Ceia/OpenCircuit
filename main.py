@@ -158,6 +158,30 @@ def parse_mdns_packet(data: bytes, source_ip: str) -> list[dict]:
 
     except Exception as e:
         log.warning(f"mDNS parse error from {source_ip}: {e}")
+        return []
+
+def reverse_dns_lookup(ip: str) -> str | None:
+    """Get hostname for an IP via reverse DNS."""
+    try:
+        hostname, _, _ = socket.gethostbyaddr(ip)
+        return hostname.rstrip(".")
+    except socket.herror:
+        return None
+
+def bulk_reverse_dns(ips: list[str], workers: int = 16) -> dict[str, str]:
+    """Reverse DNS lookup for multiple IPs in parallel."""
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_ip = {executor.submit(reverse_dns_lookup, ip): ip for ip in ips}
+        for future in concurrent.futures.as_completed(future_to_ip):
+            ip = future_to_ip[future]
+            try:
+                hostname = future.result()
+                if hostname:
+                    results[ip] = hostname
+            except Exception:
+                pass
+    return results
 
 def make_mdns_socket(local_ip: str) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -246,21 +270,27 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
     live_ips = set(ping_sweep_parallel(generate_ips(subnet)))
     log.info(f"Found {len(live_ips)} live hosts")
 
-    log.info("Step 2: mDNS active+passive discovery...")
+    log.info("Step 2: Reverse DNS lookup...")
+    rdns_map = bulk_reverse_dns(list(live_ips))
+    log.info(f"Resolved {len(rdns_map)} hostnames via reverse DNS")
+
+    log.info("Step 3: mDNS active+passive discovery...")
     mdns_map = mdns_discovery(list(live_ips), timeout=mdns_timeout)
     log.info(f"Resolved {len(mdns_map)} hostnames via mDNS")
 
-    all_ips = live_ips | set(mdns_map.keys())
+    all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys())
 
     results = []
     for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
-        hostname = mdns_map.get(ip, "unknown")
-        source = (
-            "both" if ip in live_ips and ip in mdns_map else
-            "ping" if ip in live_ips else
-            "mdns"
-        )
-        results.append({"ip": ip, "hostname": hostname, "source": source})
+        hostname = mdns_map.get(ip) or rdns_map.get(ip, "unknown")
+        sources = []
+        if ip in live_ips:
+            sources.append("ping")
+        if ip in mdns_map:
+            sources.append("mdns")
+        if ip in rdns_map:
+            sources.append("rdns")
+        results.append({"ip": ip, "hostname": hostname, "source": "+".join(sources)})
 
     return results
 
@@ -275,8 +305,8 @@ def main():
     print(f"\nTotal: {len(devices)} devices found")
     named   = sum(1 for d in devices if d['hostname'] != 'unknown')
     unnamed = len(devices) - named
-    print(f"  Named (mDNS resolved): {named}")
-    print(f"  Unnamed (no mDNS):     {unnamed}")
+    print(f"  Named (resolved): {named}")
+    print(f"  Unnamed (no resolution): {unnamed}")
 
 if __name__ == "__main__":
     main()
