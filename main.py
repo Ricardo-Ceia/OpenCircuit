@@ -11,6 +11,7 @@ import os
 import sys
 from mac_vendors import MAC_VENDORS
 from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list, get_history_stats, _get_retention_hours
+from lockdownd import get_ios_device_info, get_model_display_name
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -234,8 +235,11 @@ def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
             if ':' in line:
                 key, _, value = line.partition(':')
                 info[key.strip()] = value.strip()
+        
+        log.info(f"DEBUG SSDP: Response from {ip}: {info.get('ST', 'unknown')} | LOCATION: {info.get('LOCATION', 'none')} | SERVER: {info.get('SERVER', 'none')}")
         return info
-    except Exception:
+    except Exception as e:
+        log.info(f"DEBUG SSDP: No response from {ip}: {e}")
         return None
 
 def probe_http(ip: str, port: int = 80, timeout: float = 1.0) -> str | None:
@@ -327,18 +331,40 @@ def fetch_upnp_description(location_url: str, timeout: float = 2.0) -> dict:
         "udn": None,
     }  # type: dict[str, str | None]
     
+    # Common UPnP description paths to try
+    upnp_paths = [
+        "/description.xml",
+        "/Description.xml",
+        "/desc.xml",
+        "/Desc.xml",
+        "/devicedesc.xml",
+        "/DeviceDescription.xml",
+        "/upnp/description.xml",
+        "/WebOSTV/desc.xml",
+        "/webos/desc.xml",
+        "/dial.xml",
+        "/ssdp/desc.xml",
+        "/device.xml",
+        "/lg/smarttv/description.xml",
+        "/secondscreen/desc.xml",
+        "/",
+    ]
+    
     try:
-        # Parse URL
+        log.info(f"DEBUG UPnP: Fetching {location_url}")
+        
         if not location_url.startswith('http://'):
+            log.info(f"DEBUG UPnP: Not http:// URL, skipping")
             return result
         
+        # Parse base URL
         url_part = location_url[7:]  # Remove http://
         if '/' in url_part:
-            host_port, path = url_part.split('/', 1)
-            path = '/' + path
+            host_port, existing_path = url_part.split('/', 1)
+            existing_path = '/' + existing_path
         else:
             host_port = url_part
-            path = '/'
+            existing_path = '/'
         
         if ':' in host_port:
             host, port_str = host_port.split(':', 1)
@@ -347,49 +373,82 @@ def fetch_upnp_description(location_url: str, timeout: float = 2.0) -> dict:
             host = host_port
             port = 80
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect((host, port))
-        request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode()
-        sock.send(request)
-        
-        response = b""
-        while True:
-            chunk = sock.recv(8192)
-            if not chunk:
-                break
-            response += chunk
-            if b"\r\n\r\n" in response and len(response) > 500:
-                break
-        sock.close()
-
-        response_str = response.decode('utf-8', errors='ignore')
-        
-        # Extract XML body (after headers)
-        if "\r\n\r\n" in response_str:
-            xml = response_str.split("\r\n\r\n", 1)[1]
+        # Determine which paths to try
+        if existing_path != '/':
+            paths_to_try = [existing_path] + upnp_paths
         else:
-            xml = response_str
-
-        # Parse XML fields using regex (simple and reliable for UPnP)
-        import re
-        fields = {
-            "manufacturer": "manufacturer",
-            "model_name": "modelName",
-            "model_number": "modelNumber",
-            "friendly_name": "friendlyName",
-            "device_type": "deviceType",
-            "serial_number": "serialNumber",
-            "udn": "UDN",
-        }
+            paths_to_try = upnp_paths
         
-        for key, tag in fields.items():
-            match = re.search(f'<{tag}>(.*?)</{tag}>', xml, re.IGNORECASE | re.DOTALL)
-            if match:
-                result[key] = match.group(1).strip()
+        log.info(f"DEBUG UPnP: Connecting to {host}:{port}, trying paths: {paths_to_try[:3]}...")
 
-    except Exception:
-        pass
+        for path in paths_to_try:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout)
+                sock.connect((host, port))
+                request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: OpenCircuitScanner/1.0\r\nConnection: close\r\n\r\n".encode()
+                sock.send(request)
+                
+                response = b""
+                while True:
+                    chunk = sock.recv(8192)
+                    if not chunk:
+                        break
+                    response += chunk
+                    if b"\r\n\r\n" in response and len(response) > 500:
+                        break
+                sock.close()
+
+                response_str = response.decode('utf-8', errors='ignore')
+                
+                # Extract XML body (after headers)
+                if "\r\n\r\n" in response_str:
+                    header_part, xml = response_str.split("\r\n\r\n", 1)
+                else:
+                    xml = response_str
+                    header_part = ""
+
+                # Check if this looks like UPnP XML
+                if '<?xml' in xml or '<root' in xml or '<device' in xml:
+                    log.info(f"DEBUG UPnP: Found valid XML at {path}")
+                    log.info(f"DEBUG UPnP: Response headers: {header_part[:200]}")
+                    log.info(f"DEBUG UPnP: XML body length: {len(xml)}")
+                    log.info(f"DEBUG UPnP: XML preview: {xml[:300]}")
+                    
+                    # Parse XML fields
+                    import re
+                    fields = {
+                        "manufacturer": "manufacturer",
+                        "model_name": "modelName",
+                        "model_number": "modelNumber",
+                        "friendly_name": "friendlyName",
+                        "device_type": "deviceType",
+                        "serial_number": "serialNumber",
+                        "udn": "UDN",
+                    }
+                    
+                    for key, tag in fields.items():
+                        match = re.search(f'<(?:\w+:)?{tag}>(.*?)</(?:\w+:)?{tag}>', xml, re.IGNORECASE | re.DOTALL)
+                        if match:
+                            result[key] = match.group(1).strip()
+                            log.info(f"DEBUG UPnP: Found {key}={result[key]}")
+                        else:
+                            log.info(f"DEBUG UPnP: No match for {tag}")
+                    
+                    # If we found at least manufacturer, we're done
+                    if result["manufacturer"]:
+                        return result
+                else:
+                    log.info(f"DEBUG UPnP: Path {path} returned non-XML: {xml[:100]}")
+                    
+            except Exception as e:
+                log.info(f"DEBUG UPnP: Path {path} failed: {e}")
+                continue
+
+    except Exception as e:
+        log.info(f"DEBUG UPnP: Error fetching {location_url}: {e}")
+        import traceback
+        log.info(f"DEBUG UPnP: Traceback: {traceback.format_exc()}")
     
     return result
 
@@ -450,9 +509,36 @@ def identify_device_services(ip: str) -> dict:
     result = {"ip": ip, "services": [], "device_type": None, "fingerprint": {}}
 
     # Check iOS-specific ports (100% certain - only iOS uses these)
+    ios_detected = False
     for port, service in IOS_PORTS.items():
         if probe_tcp_port(ip, port, timeout=0.5):
             result["services"].append(f"{service} (port {port})")
+            ios_detected = True
+    
+    # If iOS detected, try lockdownd handshake to get actual device name
+    if ios_detected:
+        ios_info = get_ios_device_info(ip, timeout=5.0)
+        if ios_info and ios_info.get("device_name"):
+            result["fingerprint"] = {
+                "manufacturer": "Apple",
+                "model": ios_info.get("model") or ios_info.get("model_identifier"),
+                "friendly_name": ios_info["device_name"],
+                "device_type": "iPhone",
+                "model_number": ios_info.get("model_identifier"),
+                "ios_version": ios_info.get("ios_version"),
+                "udid": ios_info.get("udid"),
+            }
+            result["device_type"] = "iPhone"
+            result["services"].append(f"lockdownd: {ios_info['device_name']}")
+        else:
+            # Lockdownd failed (phone locked or denied)
+            result["fingerprint"] = {
+                "manufacturer": "Apple",
+                "model": None,
+                "friendly_name": None,
+                "device_type": "Apple iOS Device",
+                "model_number": None,
+            }
             result["device_type"] = "Apple iOS Device"
 
     # Check for SSDP/UPnP response
@@ -490,15 +576,16 @@ def identify_device_services(ip: str) -> dict:
         if upnp_info.get("manufacturer"):
             result["services"].append(f"UPnP: {upnp_info['manufacturer']}")
 
-    # Build unified fingerprint
-    fingerprint = build_fingerprint(ip, ssdp_info or {}, http_info, upnp_info)
-    result["fingerprint"] = fingerprint
+    # Build unified fingerprint (only if not already set by lockdownd)
+    if not result["fingerprint"]:
+        fingerprint = build_fingerprint(ip, ssdp_info or {}, http_info, upnp_info)
+        result["fingerprint"] = fingerprint
 
-    # Use fingerprint for device type if available
-    if fingerprint.get("device_type") and not result["device_type"]:
-        result["device_type"] = fingerprint["device_type"]
-    elif fingerprint.get("manufacturer") and not result["device_type"]:
-        result["device_type"] = fingerprint["manufacturer"]
+        # Use fingerprint for device type if available
+        if fingerprint.get("device_type") and not result["device_type"]:
+            result["device_type"] = fingerprint["device_type"]
+        elif fingerprint.get("manufacturer") and not result["device_type"]:
+            result["device_type"] = fingerprint["manufacturer"]
 
     return result
 

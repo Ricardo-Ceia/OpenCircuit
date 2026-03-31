@@ -104,7 +104,12 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | N
             # Update fingerprint if available and has data
             fingerprint = device.get("fingerprint", {})
             if fingerprint and fingerprint.get("manufacturer"):
-                history[ip]["fingerprint"] = fingerprint
+                # Merge fingerprint, preserving existing data if new one is empty
+                existing_fp = history[ip].get("fingerprint", {})
+                for key, value in fingerprint.items():
+                    if value:  # Only update if new value is not empty
+                        existing_fp[key] = value
+                history[ip]["fingerprint"] = existing_fp
         else:
             # New device
             history[ip] = {
