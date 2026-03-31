@@ -10,7 +10,7 @@ import threading
 import os
 import sys
 from mac_vendors import MAC_VENDORS
-from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list
+from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list, get_history_stats, _get_retention_hours
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -503,7 +503,8 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 
 def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Event, mdns_timeout: int = 5):
     """Background thread that runs scans periodically."""
-    log.info(f"Background scanner started on {subnet}")
+    retention_hours = _get_retention_hours()
+    log.info(f"Background scanner started on {subnet} (retention: {retention_hours}h)")
 
     while not stop_event.is_set():
         try:
@@ -511,7 +512,7 @@ def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Even
             log.info(f"DEBUG: current_scan has {len(current_scan)} devices: {[d['ip'] for d in current_scan]}")
             
             # merge_scan modifies history in place
-            merge_scan(current_scan, history)
+            merge_scan(current_scan, history, retention_hours=retention_hours)
             log.info(f"DEBUG: history after merge has {len(history)} devices: {list(history.keys())}")
             
             save_history(history)
@@ -532,12 +533,14 @@ def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Even
 def print_display(history: dict, scan_count: int):
     """Print the device table."""
     devices = get_history_as_list(history)
+    stats = get_history_stats(history)
+    retention = _get_retention_hours()
 
     # Clear screen (works on Windows and Linux)
     os.system('cls' if platform.system() == 'Windows' else 'clear')
 
     print("=" * 130)
-    print(f"  NETWORK SCANNER - Scan #{scan_count} | {len(devices)} devices | Press Ctrl+C to exit")
+    print(f"  NETWORK SCANNER - Scan #{scan_count} | Retention: {retention}h | Press Ctrl+C to exit")
     print("=" * 130)
     print(f"\n{'IP':<18} {'Hostname':<25} {'Status':<10} {'Last Seen':<12} {'Vendor':<15} {'MAC':<18} {'Source'}")
     print("-" * 130)
@@ -554,9 +557,7 @@ def print_display(history: dict, scan_count: int):
         print(f"{d['ip']:<18} {d['hostname']:<25} {status:<10} {last_seen:<12} {vendor:<15} {mac:<18} {'+'.join(sources)}")
 
     print("-" * 130)
-    named = sum(1 for d in devices if d.get('hostname', 'unknown') != 'unknown')
-    online = sum(1 for d in devices if d.get('status') == 'online')
-    print(f"  Total: {len(devices)} | Online: {online} | Named: {named}")
+    print(f"  Total: {stats['total']} | Online: {stats['online']} | Offline: {stats['offline']} | Named: {stats['named']}")
     print()
 
 def main():

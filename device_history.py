@@ -3,7 +3,15 @@ import os
 from datetime import datetime, timedelta
 
 HISTORY_FILE = "devices.json"
-RETENTION_HOURS = 1  # Testing: 1 hour
+# Default retention: 1 hour (testing). Override via RETENTION_HOURS env var.
+DEFAULT_RETENTION_HOURS = 1
+
+def _get_retention_hours() -> int:
+    """Get retention hours from environment or default."""
+    try:
+        return int(os.environ.get("RETENTION_HOURS", DEFAULT_RETENTION_HOURS))
+    except ValueError:
+        return DEFAULT_RETENTION_HOURS
 
 def _get_history_path(filepath=HISTORY_FILE) -> str:
     """Get absolute path to history file relative to script location."""
@@ -27,13 +35,55 @@ def save_history(history: dict, filepath=HISTORY_FILE):
     with open(abs_path, 'w') as f:
         json.dump(history, f, indent=2)
 
-def merge_scan(current_scan: list[dict], history: dict) -> dict:
+def clean_expired_devices(history: dict, retention_hours: int = None) -> list[str]:
+    """
+    Remove devices older than retention period.
+    Returns list of removed IPs.
+    """
+    if retention_hours is None:
+        retention_hours = _get_retention_hours()
+    
+    cutoff = datetime.now() - timedelta(hours=retention_hours)
+    expired_ips = []
+    
+    for ip, device in list(history.items()):
+        last_seen = datetime.fromisoformat(device.get("last_seen", ""))
+        if last_seen < cutoff:
+            expired_ips.append(ip)
+            del history[ip]
+    
+    return expired_ips
+
+def get_history_stats(history: dict) -> dict:
+    """Get statistics about the device history."""
+    if not history:
+        return {"total": 0, "online": 0, "offline": 0, "named": 0}
+    
+    return {
+        "total": len(history),
+        "online": sum(1 for d in history.values() if d.get("status") == "online"),
+        "offline": sum(1 for d in history.values() if d.get("status") == "offline"),
+        "named": sum(1 for d in history.values() if d.get("hostname", "unknown") != "unknown"),
+    }
+
+def merge_scan(current_scan: list[dict], history: dict, retention_hours: int = None) -> dict:
     """
     Merge current scan results with history.
     - Updates last_seen for devices found in current scan
     - Marks devices not in current scan as offline
     - Removes devices older than retention period
+    
+    Args:
+        current_scan: List of device dicts from current scan
+        history: Existing history dict (modified in place)
+        retention_hours: Override retention period (uses env var or default if None)
+    
+    Returns:
+        The history dict (same object, modified in place)
     """
+    if retention_hours is None:
+        retention_hours = _get_retention_hours()
+    
     now = datetime.now().isoformat()
     current_ips = set()
 
@@ -69,16 +119,11 @@ def merge_scan(current_scan: list[dict], history: dict) -> dict:
         if ip not in current_ips:
             history[ip]["status"] = "offline"
 
-    # Remove devices older than retention period
-    cutoff = datetime.now() - timedelta(hours=RETENTION_HOURS)
-    expired_ips = []
-    for ip, device in history.items():
-        last_seen = datetime.fromisoformat(device["last_seen"])
-        if last_seen < cutoff:
-            expired_ips.append(ip)
-
-    for ip in expired_ips:
-        del history[ip]
+    # Remove expired devices
+    expired = clean_expired_devices(history, retention_hours)
+    if expired:
+        from logging import getLogger
+        getLogger(__name__).info(f"Removed {len(expired)} expired devices: {expired}")
 
     return history
 
