@@ -1,4 +1,5 @@
 import socket
+import subprocess
 
 def generate_ips(subnet: str)->list[str]:
     base_ip,prefix = subnet.split('/')
@@ -14,6 +15,23 @@ def generate_ips(subnet: str)->list[str]:
     
     return ips
 
+def ping_ip(ip:str)->bool:
+    result = subprocess.run(
+            ["ping", "-c", "1", "-W", "1", ip],
+            capture_output=True,
+            text=True)
+
+    return result.returncode==0
+
+def ping_sweep(ips:list[str])->list[str]:
+    res = []
+    for ip in ips:
+        print(f"pinging... IP:{ip}")
+        if ping_ip(ip) is True:
+            res.append(ip)
+    return res
+
 def main():
-    print(generate_ips("192.168.1.0/24"))
+    ips_to_sweep = generate_ips("192.168.1.0/24")
+    print(ping_sweep(ips_to_sweep))
 main()
