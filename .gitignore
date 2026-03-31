@@ -1,4 +1,5 @@
-/target/
-DISCOVERY_PLAN.md
 .opencircuit-seen-cache.tsv
 LOCAL_ROUTER_SETUP.md
+devices.json
+future_things.md
+

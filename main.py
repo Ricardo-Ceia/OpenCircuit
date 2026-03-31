@@ -5,7 +5,12 @@ import struct
 import logging
 import platform
 import re
+import time
+import threading
+import os
+import sys
 from mac_vendors import MAC_VENDORS
+from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -439,7 +444,8 @@ def mdns_discovery(live_ips: list[str], timeout: int = 10) -> dict[str, str]:
     sock.close()
     return ip_to_hostname
 
-def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
+def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
+    """Perform a single scan cycle and return results."""
     log.info("Step 1: Ping sweep...")
     live_ips = set(ping_sweep_parallel(generate_ips(subnet)))
     log.info(f"Found {len(live_ips)} live hosts")
@@ -460,7 +466,7 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
     service_map = bulk_service_probe(list(live_ips))
     log.info(f"Identified {len(service_map)} devices via service probing")
 
-    all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys())
+    all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys()) | set(service_map.keys()) | set(service_map.keys())
 
     results = []
     for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
@@ -469,26 +475,19 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         vendor = mac_info.get("vendor")
         mac = mac_info.get("mac", "unknown")
 
-        # Service probing results
         service_info = service_map.get(ip, {})
         device_type = service_info.get("device_type")
         services = service_info.get("services", [])
 
-        # Use device type from probing if hostname is unknown
         if hostname == "unknown" and device_type:
             hostname = device_type
 
         sources = []
-        if ip in live_ips:
-            sources.append("ping")
-        if ip in mdns_map:
-            sources.append("mdns")
-        if ip in rdns_map:
-            sources.append("rdns")
-        if ip in mac_map:
-            sources.append("arp")
-        if ip in service_map:
-            sources.append("probe")
+        if ip in live_ips: sources.append("ping")
+        if ip in mdns_map: sources.append("mdns")
+        if ip in rdns_map: sources.append("rdns")
+        if ip in mac_map: sources.append("arp")
+        if ip in service_map: sources.append("probe")
 
         results.append({
             "ip": ip,
@@ -502,21 +501,95 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 
     return results
 
-def main():
-    devices = discover_network("192.168.1.0/24", mdns_timeout=10)
+def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Event, mdns_timeout: int = 5):
+    """Background thread that runs scans periodically."""
+    log.info(f"Background scanner started on {subnet}")
 
-    print(f"\n{'IP':<18} {'Hostname':<25} {'Vendor':<15} {'MAC':<18} {'Services':<30} {'Source'}")
+    while not stop_event.is_set():
+        try:
+            current_scan = run_single_scan(subnet, mdns_timeout=mdns_timeout)
+            log.info(f"DEBUG: current_scan has {len(current_scan)} devices: {[d['ip'] for d in current_scan]}")
+            
+            # merge_scan modifies history in place
+            merge_scan(current_scan, history)
+            log.info(f"DEBUG: history after merge has {len(history)} devices: {list(history.keys())}")
+            
+            save_history(history)
+            log.info(f"Scan complete: {len(history)} devices in history")
+        except Exception as e:
+            log.error(f"Scan error: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+
+        # Wait for next scan, checking stop event periodically
+        for _ in range(30):
+            if stop_event.is_set():
+                break
+            time.sleep(1)
+
+    log.info("Background scanner stopped")
+
+def print_display(history: dict, scan_count: int):
+    """Print the device table."""
+    devices = get_history_as_list(history)
+
+    # Clear screen (works on Windows and Linux)
+    os.system('cls' if platform.system() == 'Windows' else 'clear')
+
+    print("=" * 130)
+    print(f"  NETWORK SCANNER - Scan #{scan_count} | {len(devices)} devices | Press Ctrl+C to exit")
+    print("=" * 130)
+    print(f"\n{'IP':<18} {'Hostname':<25} {'Status':<10} {'Last Seen':<12} {'Vendor':<15} {'MAC':<18} {'Source'}")
     print("-" * 130)
-    for d in devices:
-        vendor = d['vendor'] or "unknown"
-        services = ", ".join(d.get('services', [])) if d.get('services') else "none"
-        print(f"{d['ip']:<18} {d['hostname']:<25} {vendor:<15} {d['mac']:<18} {services:<30} {d['source']}")
 
-    print(f"\nTotal: {len(devices)} devices found")
-    named   = sum(1 for d in devices if d['hostname'] != 'unknown')
-    unnamed = len(devices) - named
-    print(f"  Named (resolved): {named}")
-    print(f"  Unnamed (no resolution): {unnamed}")
+    for d in devices:
+        vendor = d.get('vendor') or "unknown"
+        mac = d.get('mac', 'unknown')
+        status = "ONLINE" if d.get('status') == 'online' else "OFFLINE"
+        last_seen = format_last_seen(d.get('last_seen', ''))
+        sources = d.get('sources', d.get('source', []))
+        if isinstance(sources, str):
+            sources = sources.split('+') if sources else []
+
+        print(f"{d['ip']:<18} {d['hostname']:<25} {status:<10} {last_seen:<12} {vendor:<15} {mac:<18} {'+'.join(sources)}")
+
+    print("-" * 130)
+    named = sum(1 for d in devices if d.get('hostname', 'unknown') != 'unknown')
+    online = sum(1 for d in devices if d.get('status') == 'online')
+    print(f"  Total: {len(devices)} | Online: {online} | Named: {named}")
+    print()
+
+def main():
+    subnet = "192.168.1.0/24"
+    history = load_history()
+    stop_event = threading.Event()
+
+    # Start background scanner
+    scan_thread = threading.Thread(
+        target=_background_scan_loop,
+        args=(subnet, history, stop_event, 5),
+        daemon=True
+    )
+    scan_thread.start()
+
+    # Main display loop
+    scan_count = 0
+    try:
+        while True:
+            scan_count += 1
+            print_display(history, scan_count)
+
+            # Wait for next display refresh
+            for _ in range(5):
+                if stop_event.is_set():
+                    break
+                time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping scanner...")
+        stop_event.set()
+        scan_thread.join(timeout=10)
+        save_history(history)
+        print("Scanner stopped. Goodbye!")
 
 if __name__ == "__main__":
     main()
