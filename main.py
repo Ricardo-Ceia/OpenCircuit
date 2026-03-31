@@ -4,6 +4,8 @@ import concurrent.futures
 import struct
 import logging
 import platform
+import re
+from mac_vendors import MAC_VENDORS
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -183,6 +185,48 @@ def bulk_reverse_dns(ips: list[str], workers: int = 16) -> dict[str, str]:
                 pass
     return results
 
+# ---------------------------------------------------------------------------
+# ARP / MAC vendor lookup
+# ---------------------------------------------------------------------------
+
+def get_arp_table() -> dict[str, str]:
+    """Parse ARP table to get IP -> MAC mapping."""
+    ip_to_mac = {}
+    if IS_WINDOWS:
+        result = subprocess.run(["arp", "-a"], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            match = re.match(r"\s*(\d+\.\d+\.\d+\.\d+)\s+([0-9a-fA-F-]{17})", line)
+            if match:
+                ip = match.group(1)
+                mac = match.group(2).replace("-", ":").lower()
+                ip_to_mac[ip] = mac
+    elif IS_LINUX:
+        try:
+            with open("/proc/net/arp") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[0] != "IP":
+                        ip_to_mac[parts[0]] = parts[3].lower()
+        except FileNotFoundError:
+            pass
+    return ip_to_mac
+
+def get_mac_vendor(mac: str) -> str | None:
+    """Look up vendor from MAC address OUI prefix."""
+    oui = mac[:8].upper()
+    return MAC_VENDORS.get(oui)
+
+def mac_discovery(ips: list[str]) -> dict[str, dict]:
+    """Get MAC addresses and vendors for given IPs via ARP table."""
+    arp_table = get_arp_table()
+    results = {}
+    for ip in ips:
+        if ip in arp_table:
+            mac = arp_table[ip]
+            vendor = get_mac_vendor(mac)
+            results[ip] = {"mac": mac, "vendor": vendor}
+    return results
+
 def make_mdns_socket(local_ip: str) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -270,11 +314,15 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
     live_ips = set(ping_sweep_parallel(generate_ips(subnet)))
     log.info(f"Found {len(live_ips)} live hosts")
 
-    log.info("Step 2: Reverse DNS lookup...")
+    log.info("Step 2: ARP/MAC vendor lookup...")
+    mac_map = mac_discovery(list(live_ips))
+    log.info(f"Found {len(mac_map)} MAC addresses")
+
+    log.info("Step 3: Reverse DNS lookup...")
     rdns_map = bulk_reverse_dns(list(live_ips))
     log.info(f"Resolved {len(rdns_map)} hostnames via reverse DNS")
 
-    log.info("Step 3: mDNS active+passive discovery...")
+    log.info("Step 4: mDNS active+passive discovery...")
     mdns_map = mdns_discovery(list(live_ips), timeout=mdns_timeout)
     log.info(f"Resolved {len(mdns_map)} hostnames via mDNS")
 
@@ -283,6 +331,9 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
     results = []
     for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
         hostname = mdns_map.get(ip) or rdns_map.get(ip, "unknown")
+        mac_info = mac_map.get(ip, {})
+        vendor = mac_info.get("vendor")
+        mac = mac_info.get("mac", "unknown")
         sources = []
         if ip in live_ips:
             sources.append("ping")
@@ -290,17 +341,26 @@ def discover_network(subnet: str, mdns_timeout: int = 10) -> list[dict]:
             sources.append("mdns")
         if ip in rdns_map:
             sources.append("rdns")
-        results.append({"ip": ip, "hostname": hostname, "source": "+".join(sources)})
+        if ip in mac_map:
+            sources.append("arp")
+        results.append({
+            "ip": ip,
+            "hostname": hostname,
+            "mac": mac,
+            "vendor": vendor,
+            "source": "+".join(sources)
+        })
 
     return results
 
 def main():
     devices = discover_network("192.168.1.0/24", mdns_timeout=10)
 
-    print(f"\n{'IP':<18} {'Hostname':<40} {'Source'}")
-    print("-" * 65)
+    print(f"\n{'IP':<18} {'Hostname':<30} {'Vendor':<15} {'MAC':<18} {'Source'}")
+    print("-" * 95)
     for d in devices:
-        print(f"{d['ip']:<18} {d['hostname']:<40} {d['source']}")
+        vendor = d['vendor'] or "unknown"
+        print(f"{d['ip']:<18} {d['hostname']:<30} {vendor:<15} {d['mac']:<18} {d['source']}")
 
     print(f"\nTotal: {len(devices)} devices found")
     named   = sum(1 for d in devices if d['hostname'] != 'unknown')
