@@ -23,11 +23,33 @@
 	let selectedIp = $state<string | null>(null);
 	let connection = $state<'connecting' | 'connected' | 'disconnected'>('connecting');
 	let ws: WebSocket | null = null;
+	let lastPayloadStamp = '';
 
 	const selectedDevice = $derived(devices.find((d) => d.ip === selectedIp) ?? null);
 	const unnamedCount = $derived(devices.filter((d) => d.identity_status === 'unidentified').length);
 
+	function payloadStamp(payload: DevicesResponse): string {
+		const parts = [
+			String(payload.stats?.total ?? 0),
+			String(payload.stats?.online ?? 0),
+			String(payload.stats?.offline ?? 0),
+			String(payload.stats?.unidentified ?? 0)
+		];
+		for (const d of payload.devices ?? []) {
+			parts.push(
+				`${d.ip}|${d.label}|${d.identity_status}|${d.status ?? ''}|${d.last_seen ?? ''}|${d.label_source ?? ''}`
+			);
+		}
+		return parts.join('~');
+	}
+
 	function applyState(payload: DevicesResponse) {
+		const stamp = payloadStamp(payload);
+		if (stamp === lastPayloadStamp) {
+			return;
+		}
+		lastPayloadStamp = stamp;
+
 		devices = sortDevices(payload.devices ?? []);
 		stats = payload.stats ?? stats;
 		if (!selectedIp && devices.length > 0) {

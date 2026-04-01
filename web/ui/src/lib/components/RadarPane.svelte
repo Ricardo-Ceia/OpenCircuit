@@ -110,8 +110,9 @@
 		position: absolute;
 		inset: -18%;
 		background: conic-gradient(from 0deg, transparent 0deg, transparent 310deg, color-mix(in oklab, var(--tone-online) 24%, transparent) 340deg, color-mix(in oklab, var(--tone-online) 4%, transparent) 360deg);
-		animation: sweep 5.5s linear infinite;
+		animation: sweep 7.5s linear infinite;
 		mix-blend-mode: screen;
+		will-change: transform;
 	}
 
 	.blip {
@@ -142,7 +143,7 @@
 		inset: -0.4rem;
 		border-radius: 999px;
 		border: 1px solid color-mix(in oklab, hsl(var(--h) 88% 62%) 45%, transparent);
-		animation: ping 2.2s ease-out infinite;
+		animation: ping 3.2s ease-out infinite;
 	}
 
 	.blip.offline .ping {

@@ -6,12 +6,6 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<link rel="preconnect" href="https://fonts.googleapis.com" />
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-	<link
-		href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;400;500;600;700&family=Major+Mono+Display&display=swap"
-		rel="stylesheet"
-	/>
 	<title>OpenCircuit Command Deck</title>
 </svelte:head>
 
@@ -38,8 +32,10 @@
 		--tone-muted: #6b7c92;
 		--tone-muted-bright: #95a8bf;
 
-		--display: 'Major Mono Display', 'Azeret Mono', monospace;
-		--body: 'Azeret Mono', monospace;
+		--display: 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', 'Consolas', 'Liberation Mono',
+			'Menlo', 'Monaco', monospace;
+		--body: 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', 'Consolas', 'Liberation Mono',
+			'Menlo', 'Monaco', monospace;
 	}
 
 	:global(*) {
@@ -91,7 +87,7 @@
 		);
 		border: 1px solid var(--edge-soft);
 		border-radius: 0.72rem;
-		backdrop-filter: blur(6px);
+		backdrop-filter: blur(2px);
 	}
 
 	:global(.panel-glow) {
@@ -103,5 +99,16 @@
 	:global(.panel-warning) {
 		border-color: color-mix(in oklab, var(--tone-warning) 36%, var(--edge-soft));
 		box-shadow: 0 0 1.3rem color-mix(in oklab, var(--tone-warning) 10%, transparent);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(*),
+		:global(*::before),
+		:global(*::after) {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+			scroll-behavior: auto !important;
+		}
 	}
 </style>

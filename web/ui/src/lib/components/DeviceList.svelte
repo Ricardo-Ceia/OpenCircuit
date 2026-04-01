@@ -21,12 +21,11 @@
 		<div class="empty">Listening for first scan pulse…</div>
 	{:else}
 		<div class="cards">
-			{#each devices as device, i}
+			{#each devices as device (device.ip)}
 				<button
 					type="button"
 					class={`card ${device.ip === selectedIp ? 'selected' : ''} ${device.identity_status}`}
 					onclick={() => onSelect(device.ip)}
-					style={`--stagger: ${i * 30}ms`}
 				>
 					<div class="card-top">
 						<div class="dot {isOnline(device) ? 'online' : 'offline'}"></div>
@@ -105,8 +104,6 @@
 		border-radius: 0.5rem;
 		cursor: pointer;
 		transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-		animation: reveal 420ms cubic-bezier(0.18, 0.83, 0.31, 1) both;
-		animation-delay: var(--stagger);
 	}
 
 	.card:hover {
@@ -207,14 +204,4 @@
 		white-space: nowrap;
 	}
 
-	@keyframes reveal {
-		from {
-			opacity: 0;
-			transform: translateY(5px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
 </style>

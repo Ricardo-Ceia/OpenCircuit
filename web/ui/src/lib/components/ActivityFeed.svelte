@@ -8,8 +8,8 @@
 
 	let { devices }: Props = $props();
 
-	function events() {
-		return [...devices]
+	const items = $derived(
+		[...devices]
 			.filter((d) => d.last_seen)
 			.sort((a, b) => (b.last_seen ?? '').localeCompare(a.last_seen ?? ''))
 			.slice(0, 8)
@@ -21,8 +21,8 @@
 					status,
 					time: relativeTime(d.last_seen)
 				};
-			});
-	}
+			})
+	);
 </script>
 
 <section class="panel feed">
@@ -31,11 +31,11 @@
 		<div class="sub">Last 8 contact updates</div>
 	</div>
 
-	{#if events().length === 0}
+	{#if items.length === 0}
 		<div class="empty">No activity yet</div>
 	{:else}
 		<ul>
-			{#each events() as event}
+			{#each items as event (event.id)}
 				<li>
 					<div class="event-label">{event.label}</div>
 					<div class="event-meta">{event.status} · {event.time}</div>

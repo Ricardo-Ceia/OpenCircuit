@@ -15,8 +15,9 @@
 
 	.mesh {
 		position: absolute;
-		filter: blur(54px);
+		filter: blur(42px);
 		opacity: 0.35;
+		will-change: transform;
 	}
 
 	.mesh-a {
@@ -43,8 +44,8 @@
 		background-image:
 			radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.04) 1px, transparent 0),
 			repeating-linear-gradient(0deg, transparent 0, transparent 3px, rgba(0, 0, 0, 0.07) 4px);
-		background-size: 3px 3px, 100% 6px;
-		opacity: 0.27;
+		background-size: 4px 4px, 100% 6px;
+		opacity: 0.18;
 	}
 
 	@keyframes driftA {

@@ -32,15 +32,34 @@ event_loop: Optional[asyncio.AbstractEventLoop] = None
 # ─── WebSocket connection pool ────────────────────────────────────────────
 
 connected_clients: set[WebSocket] = set()
+last_broadcast_stamp = ""
 
 
 async def broadcast_update(devices: list[dict]):
     """Push device updates to all connected WebSocket clients."""
+    global last_broadcast_stamp
+
     if not connected_clients:
         return
     stats = get_history_stats(scanner.get_history())
     payload_devices = [dict(d) for d in devices]
     assign_stable_aliases(payload_devices)
+
+    stamp_parts = [
+        str(stats.get("total", 0)),
+        str(stats.get("online", 0)),
+        str(stats.get("offline", 0)),
+        str(stats.get("unidentified", 0)),
+    ]
+    for d in payload_devices:
+        stamp_parts.append(
+            f"{d.get('ip','')}|{d.get('label','')}|{d.get('identity_status','')}|{d.get('status','')}|{d.get('last_seen','')}|{d.get('label_source','')}"
+        )
+    stamp = "~".join(stamp_parts)
+    if stamp == last_broadcast_stamp:
+        return
+    last_broadcast_stamp = stamp
+
     msg = json.dumps({
         "type": "scan_update",
         "devices": payload_devices,
