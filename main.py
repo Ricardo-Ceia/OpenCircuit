@@ -868,21 +868,39 @@ def print_display(history: dict, scan_count: int):
 
     print("-" * 140)
     print(f"  Total: {stats['total']} | Online: {stats['online']} | Offline: {stats['offline']} | Verified: {stats['verified']} | Unidentified: {stats['unidentified']}")
+
+    # Show unnamed device hint
+    unnamed_count = sum(
+        1 for d in devices
+        if d.get("identity_status") == "unidentified" and d.get("status") == "online"
+    )
+    if unnamed_count > 0:
+        print(f"  {unnamed_count} unnamed device(s) — press 'i' to name them")
+
     print()
 
-def _run_identify_flow(subnet: str):
-    """Interactive flow to identify and name unnamed devices."""
-    import sys
+def _is_device_offline(ip: str, retries: int = 2) -> bool:
+    """Check if a device is offline by pinging it."""
+    for _ in range(retries):
+        if ping_ip(ip):
+            return False
+        time.sleep(0.3)
+    return True
 
-    print("\nScanning network for devices...\n")
+
+def _run_identify_flow(subnet: str):
+    """Auto-detect identify flow. User disconnects Wi-Fi, system detects which device."""
+    print("\n  Scanning network...\n")
     scan_results = run_single_scan(subnet, mdns_timeout=5)
 
-    # Filter to only unidentified/identified devices without a known name
+    # Filter to only online unnamed devices with known MACs
     unnamed = []
     for d in scan_results:
         if d.get("identity_status") in ("claimed",):
             continue
         if d.get("label_source") == "known":
+            continue
+        if d.get("status") != "online":
             continue
         mac = d.get("mac", "unknown")
         if mac == "unknown":
@@ -890,38 +908,21 @@ def _run_identify_flow(subnet: str):
         unnamed.append(d)
 
     if not unnamed:
-        print("  All devices are already identified.")
-        print("  Run 'python main.py' to see your network.\n")
+        print("  No online unnamed devices found.\n")
         return
 
-    print(f"  {len(unnamed)} unnamed device(s) found:\n")
-
-    # Group same-type devices
     assign_stable_aliases(unnamed)
 
-    for i, d in enumerate(unnamed, 1):
-        label = d.get("label", "Unknown")
-        status = "online" if d.get("status") == "online" else "offline"
-        clue = _build_clue(d)
-        clue_str = f"  ({clue})" if clue else ""
-        print(f"  [{i}] {label}{clue_str}  —  {status}")
+    while unnamed:
+        print(f"  {'Unnamed devices':}")
+        print(f"  {'-' * 40}")
+        for i, d in enumerate(unnamed, 1):
+            label = d.get("label", "Unknown")
+            clue = _build_clue(d)
+            clue_str = f" ({clue})" if clue else ""
+            print(f"  [{i}] {label}{clue_str} — online")
 
-    print()
-
-    # Check for ambiguous same-type groups
-    type_groups: dict[str, list[int]] = {}
-    for i, d in enumerate(unnamed):
-        label = d.get("label", "")
-        # Get base type (without #N suffix)
-        if " #" in label:
-            base = label.rsplit(" #", 1)[0]
-        else:
-            base = label
-        type_groups.setdefault(base, []).append(i)
-
-    ambiguous_groups = {k: v for k, v in type_groups.items() if len(v) > 1}
-
-    while True:
+        print()
         try:
             choice = input("  Which device to name? (number, q=quit): ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -934,92 +935,125 @@ def _run_identify_flow(subnet: str):
         try:
             idx = int(choice) - 1
             if idx < 0 or idx >= len(unnamed):
-                print("  Invalid number.")
+                print("  Invalid number.\n")
                 continue
         except ValueError:
-            print("  Enter a number.")
+            print("  Enter a number.\n")
             continue
 
         device = unnamed[idx]
-        device_label = device.get("label", "Unknown")
-        device_type = device_label.split(" #")[0] if " #" in device_label else device_label
+        device_ip = device["ip"]
         mac = device.get("mac", "unknown")
+        label = device.get("label", "Device")
 
-        # Check if this device is in an ambiguous group
-        if device_type in ambiguous_groups:
-            group = ambiguous_groups[device_type]
-            others = [unnamed[i] for i in group if i != idx]
-            print(f"\n  {len(group)} {device_type} devices found.")
-            print(f"  To identify which one this is:")
-            print(f"  1. Turn off Wi-Fi on the phone you want to name")
-            print(f"  2. Watch which device goes offline\n")
+        # Auto-detect: countdown while pinging
+        print(f"\n  Disconnect Wi-Fi on that device NOW")
+        print(f"  {'-' * 40}")
 
+        went_offline = False
+        for remaining in range(20, 0, -1):
+            print(f"  Waiting... {remaining:2d}s  ", end="\r")
+            if _is_device_offline(device_ip):
+                went_offline = True
+                break
+            time.sleep(1)
+
+        print(" " * 40, end="\r")  # clear countdown line
+
+        if went_offline:
+            print(f"  Detected: {device_ip} went offline ✓")
+        else:
+            print(f"  Device didn't go offline.")
             try:
-                confirm = input(f"  Did '{device_label}' just go offline? (y/n): ").strip().lower()
+                retry = input("  Try again? (y/n): ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return
-
-            if confirm != "y":
-                print("  Try the other device.\n")
+            if retry == "y":
+                print()
+                continue
+            else:
+                print()
                 continue
 
-        # Ask for name
+        # Show clues and ask for name
+        clue = _build_clue(device)
+        detail = f" ({clue})" if clue else ""
+        print(f"\n  Device{detail}")
         try:
-            name = input(f"  What do you call this device? ").strip()
+            name = input("  What do you call this device? ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return
 
         if not name:
-            print("  Name cannot be empty.")
+            print("  Name cannot be empty.\n")
             continue
 
         set_known_name(mac, name)
-        print(f"  Saved '{name}' for {mac}\n")
-        break
+        print(f"  Saved '{name}' ✓\n")
 
-    print("  Done. Run 'python main.py' to see updated labels.\n")
+        # Remove from list and continue
+        unnamed.pop(idx)
+        if not unnamed:
+            print("  All devices named!\n")
+            break
+
+        assign_stable_aliases(unnamed)
+
+    print("  Returning to live scan...\n")
+
+
+def _get_key_press():
+    """Non-blocking keyboard input. Returns char or None."""
+    if platform.system() == "Windows":
+        import msvcrt
+        if msvcrt.kbhit():
+            return msvcrt.getch().decode("utf-8", errors="ignore")
+    else:
+        import select
+        if select.select([sys.stdin], [], [], 0)[0]:
+            ch = sys.stdin.read(1)
+            return ch if ch else None
+    return None
 
 
 def main():
     import sys
 
     subnet = "192.168.1.0/24"
-
-    if "--identify" in sys.argv:
-        _run_identify_flow(subnet)
-        return
-
     history = load_history()
-    stop_event = threading.Event()
 
-    # Start background scanner
+    # Start background scanner (daemon thread — dies with main)
     scan_thread = threading.Thread(
         target=_background_scan_loop,
-        args=(subnet, history, stop_event, 5),
+        args=(subnet, history, threading.Event(), 5),
         daemon=True
     )
     scan_thread.start()
 
-    # Main display loop
+    # Main display + keyboard loop
     scan_count = 0
     try:
         while True:
             scan_count += 1
             print_display(history, scan_count)
 
-            # Wait for next display refresh
+            # Wait 5 seconds, checking for keyboard input every second
             for _ in range(5):
-                if stop_event.is_set():
-                    break
+                ch = _get_key_press()
+                if ch == "i":
+                    _run_identify_flow(subnet)
+                    break  # refresh display after identify
+                elif ch is not None and ord(ch) == 3:  # Ctrl+C
+                    raise KeyboardInterrupt
                 time.sleep(1)
     except KeyboardInterrupt:
-        print("\nStopping scanner...")
-        stop_event.set()
-        scan_thread.join(timeout=10)
-        save_history(history)
-        print("Scanner stopped. Goodbye!")
+        pass
+
+    print("\nStopping scanner...")
+    save_history(history)
+    print("Scanner stopped. Goodbye!")
 
 if __name__ == "__main__":
     main()
