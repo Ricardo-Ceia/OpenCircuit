@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCircuit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─── Reset & Base ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0e14;
+  --surface: #111820;
+  --surface-hover: #161d27;
+  --border: #1c2430;
+  --green: #00ff41;
+  --green-dim: #00cc33;
+  --green-glow: rgba(0, 255, 65, 0.15);
+  --amber: #f0b429;
+  --amber-dim: #d49d1f;
+  --red: #ff3d3d;
+  --red-dim: #cc3030;
+  --text: #c9d1d9;
+  --text-bright: #e6edf3;
+  --muted: #484f58;
+  --muted-bright: #6e7681;
+  --mono: 'IBM Plex Mono', 'Courier New', monospace;
+  --radius: 4px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* ─── Scanline overlay ─────────────────────────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ─── Layout ───────────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topbar-logo {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--green);
+  text-transform: uppercase;
+  text-shadow: 0 0 20px var(--green-glow);
+}
+
+.topbar-stats {
+  display: flex;
+  gap: 20px;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted-bright);
+}
+
+.topbar-stats span { white-space: nowrap; }
+
+.stat-value {
+  font-weight: 600;
+}
+.stat-value.green { color: var(--green); }
+.stat-value.amber { color: var(--amber); }
+.stat-value.red { color: var(--red); }
+
+.main {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  overflow: hidden;
+}
+
+/* ─── Device List Panel ────────────────────────────────────────────────── */
+.device-list-panel {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.device-list-panel::-webkit-scrollbar { width: 6px; }
+.device-list-panel::-webkit-scrollbar-track { background: transparent; }
+.device-list-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.device-list-header {
+  padding: 16px 20px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted-bright);
+}
+
+.device-card {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.device-card:hover {
+  background: var(--surface-hover);
+}
+
+.device-card.selected {
+  background: var(--surface);
+  border-left: 3px solid var(--green);
+  padding-left: 17px;
+}
+
+.device-card.selected.unidentified {
+  border-left-color: var(--amber);
+}
+
+.device-card-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-bright);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted-bright);
+}
+
+.device-card-clue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green-glow);
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+.status-dot.offline {
+  background: var(--red-dim);
+}
+
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.identity-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.identity-badge.claimed { background: rgba(0, 255, 65, 0.12); color: var(--green); }
+.identity-badge.verified { background: rgba(0, 255, 65, 0.08); color: var(--green-dim); }
+.identity-badge.identified { background: rgba(0, 204, 51, 0.08); color: var(--green-dim); }
+.identity-badge.unidentified { background: rgba(240, 180, 41, 0.12); color: var(--amber); }
+
+/* ─── Detail Panel ─────────────────────────────────────────────────────── */
+.detail-panel {
+  overflow-y: auto;
+  padding: 32px;
+  background: var(--bg);
+}
+
+.detail-panel::-webkit-scrollbar { width: 6px; }
+.detail-panel::-webkit-scrollbar-track { background: transparent; }
+.detail-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.detail-header {
+  margin-bottom: 32px;
+}
+
+.detail-label-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.detail-label {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.detail-identity {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+
+.detail-identity.claimed { background: rgba(0, 255, 65, 0.12); color: var(--green); }
+.detail-identity.verified { background: rgba(0, 255, 65, 0.08); color: var(--green-dim); }
+.detail-identity.identified { background: rgba(0, 204, 51, 0.08); color: var(--green-dim); }
+.detail-identity.unidentified { background: rgba(240, 180, 41, 0.12); color: var(--amber); }
+
+.detail-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted-bright);
+}
+
+.detail-status-line .status-dot { width: 8px; height: 8px; }
+
+/* Name editing */
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.name-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-bright);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.name-input:focus {
+  border-color: var(--green-dim);
+  box-shadow: 0 0 0 2px var(--green-glow);
+}
+
+.name-input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.name-save-btn {
+  background: var(--green-dim);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: background 0.15s;
+}
+
+.name-save-btn:hover {
+  background: var(--green);
+}
+
+.name-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Fields grid */
+.fields {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.field-label {
+  background: var(--surface);
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted-bright);
+}
+
+.field-value {
+  background: var(--surface);
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* ─── Footer hint ──────────────────────────────────────────────────────── */
+.footer-hint {
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--amber-dim);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* ─── Connection status ────────────────────────────────────────────────── */
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted-bright);
+  letter-spacing: 0.5px;
+}
+
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.conn-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green-glow); }
+.conn-dot.disconnected { background: var(--red); }
+.conn-dot.connecting { background: var(--amber); animation: pulse-green 1s infinite; }
+
+/* ─── Loading state ────────────────────────────────────────────────────── */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+}
+
+.loading-ring {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 11px;
+  color: var(--muted-bright);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ─── Toast notification ───────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--surface);
+  border: 1px solid var(--green-dim);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--green);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: 1000;
+}
+
+.toast.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="topbar-logo">OpenCircuit</div>
+    <div class="conn-status">
+      <div class="conn-dot connecting" id="connDot"></div>
+      <span id="connText">Connecting</span>
+    </div>
+    <div class="topbar-stats" id="topbarStats">
+      <span><span class="stat-value green" id="statOnline">0</span> online</span>
+      <span><span class="stat-value red" id="statOffline">0</span> offline</span>
+      <span><span class="stat-value amber" id="statUnnamed">0</span> unnamed</span>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Device List -->
+    <div class="device-list-panel">
+      <div class="device-list-header">Devices</div>
+      <div id="deviceList">
+        <div class="loading">
+          <div class="loading-ring"></div>
+          <div class="loading-text">Scanning network</div>
+        </div>
+      </div>
+      <div class="footer-hint" id="footerHint" style="display:none"></div>
+    </div>
+
+    <!-- Detail -->
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-empty">Select a device to view details</div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────
+let devices = [];
+let stats = {};
+let selectedIp = null;
+let ws = null;
+
+// ─── WebSocket ────────────────────────────────────────────────────────────
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    setConnection('connected', 'Live');
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'full_state' || msg.type === 'scan_update') {
+      devices = msg.devices || [];
+      stats = msg.stats || {};
+      render();
+    }
+  };
+
+  ws.onclose = () => {
+    setConnection('disconnected', 'Disconnected');
+    // Reconnect after 3s
+    setTimeout(connectWs, 3000);
+  };
+
+  ws.onerror = () => {
+    setConnection('disconnected', 'Error');
+  };
+}
+
+function setConnection(state, text) {
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connText');
+  dot.className = `conn-dot ${state}`;
+  label.textContent = text;
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────
+function render() {
+  renderStats();
+  renderDeviceList();
+  renderDetail();
+  renderFooterHint();
+}
+
+function renderStats() {
+  document.getElementById('statOnline').textContent = stats.online || 0;
+  document.getElementById('statOffline').textContent = stats.offline || 0;
+  document.getElementById('statUnnamed').textContent = stats.unidentified || 0;
+}
+
+function renderDeviceList() {
+  const container = document.getElementById('deviceList');
+
+  if (!devices.length) {
+    container.innerHTML = '<div class="loading"><div class="loading-ring"></div><div class="loading-text">Waiting for devices</div></div>';
+    return;
+  }
+
+  // Sort: online first, then by identity priority
+  const identityOrder = { claimed: 0, verified: 1, identified: 2, unidentified: 3 };
+  const statusOrder = { online: 0, offline: 1 };
+  const sorted = [...devices].sort((a, b) => {
+    const si = (identityOrder[a.identity_status] ?? 9) - (identityOrder[b.identity_status] ?? 9);
+    if (si !== 0) return si;
+    const ss = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+    if (ss !== 0) return ss;
+    return (a.first_seen || '').localeCompare(b.first_seen || '');
+  });
+
+  container.innerHTML = sorted.map(d => {
+    const isSelected = d.ip === selectedIp;
+    const isUnidentified = d.identity_status === 'unidentified';
+    const statusClass = d.status === 'online' ? 'online' : 'offline';
+    const selectedClass = isSelected ? 'selected' : '';
+    const unidentifiedClass = isUnidentified && isSelected ? 'unidentified' : '';
+
+    return `
+      <div class="device-card ${selectedClass} ${unidentifiedClass}" onclick="selectDevice('${d.ip}')">
+        <div class="device-card-label">${escapeHtml(d.label || 'Unknown')}</div>
+        <div class="device-card-meta">
+          <div class="status-dot ${statusClass}"></div>
+          <span class="identity-badge ${d.identity_status}">${d.identity_status}</span>
+          <span class="device-card-clue">${escapeHtml(buildClue(d))}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderDetail() {
+  const panel = document.getElementById('detailPanel');
+  const d = devices.find(d => d.ip === selectedIp);
+
+  if (!d) {
+    panel.innerHTML = '<div class="detail-empty">Select a device to view details</div>';
+    return;
+  }
+
+  const isOnline = d.status === 'online';
+  const isUnnamed = d.identity_status === 'unidentified';
+  const canName = d.mac && d.mac !== 'unknown';
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-label-row">
+        <div class="detail-label">${escapeHtml(d.label || 'Unknown')}</div>
+        <div class="detail-identity ${d.identity_status}">${d.identity_status}</div>
+      </div>
+      <div class="detail-status-line">
+        <div class="status-dot ${isOnline ? 'online' : 'offline'}"></div>
+        ${isOnline ? 'Online now' : 'Offline · last seen ' + formatLastSeen(d.last_seen)}
+      </div>
+    </div>
+
+    ${canName ? `
+    <div class="name-row">
+      <input class="name-input" id="nameInput" type="text"
+        placeholder="${isUnnamed ? 'Name this device...' : 'Rename...'}"
+        value="${escapeHtml(d.label && d.identity_status === 'claimed' ? d.label : '')}"
+        onkeydown="if(event.key==='Enter')saveName()"
+      >
+      <button class="name-save-btn" id="nameSaveBtn" onclick="saveName()">Save</button>
+    </div>
+    ` : ''}
+
+    <div class="fields">
+      <div class="field-label">IP</div>
+      <div class="field-value">${d.ip}</div>
+
+      <div class="field-label">MAC</div>
+      <div class="field-value">${escapeHtml(d.mac || 'unknown')}</div>
+
+      ${d.vendor ? `
+      <div class="field-label">Vendor</div>
+      <div class="field-value">${escapeHtml(d.vendor)}</div>
+      ` : ''}
+
+      ${d.hostname && d.hostname !== 'unknown' ? `
+      <div class="field-label">Hostname</div>
+      <div class="field-value">${escapeHtml(d.hostname)}</div>
+      ` : ''}
+
+      <div class="field-label">Label source</div>
+      <div class="field-value">${d.label_source || 'unknown'}</div>
+
+      ${d.fingerprint && d.fingerprint.manufacturer ? `
+      <div class="field-label">Manufacturer</div>
+      <div class="field-value">${escapeHtml(d.fingerprint.manufacturer)}${d.fingerprint.model ? ' ' + escapeHtml(d.fingerprint.model) : ''}</div>
+      ` : ''}
+
+      ${d.fingerprint && d.fingerprint.device_type ? `
+      <div class="field-label">Device type</div>
+      <div class="field-value">${escapeHtml(d.fingerprint.device_type)}</div>
+      ` : ''}
+
+      <div class="field-label">First seen</div>
+      <div class="field-value">${formatTimestamp(d.first_seen)}</div>
+
+      <div class="field-label">Last seen</div>
+      <div class="field-value">${formatTimestamp(d.last_seen)}</div>
+
+      ${d.services && d.services.length ? `
+      <div class="field-label">Services</div>
+      <div class="field-value">${escapeHtml(d.services.join(', '))}</div>
+      ` : ''}
+
+      <div class="field-label">Scan sources</div>
+      <div class="field-value">${escapeHtml(d.sources || d.source || '')}</div>
+    </div>
+  `;
+}
+
+function renderFooterHint() {
+  const hint = document.getElementById('footerHint');
+  const unnamed = devices.filter(d =>
+    d.identity_status === 'unidentified' && d.status === 'online' && d.mac && d.mac !== 'unknown'
+  );
+  if (unnamed.length > 0) {
+    hint.textContent = `${unnamed.length} unnamed device${unnamed.length > 1 ? 's' : ''} — click to name them`;
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────
+function selectDevice(ip) {
+  selectedIp = ip;
+  renderDeviceList();
+  renderDetail();
+}
+
+async function saveName() {
+  const input = document.getElementById('nameInput');
+  const btn = document.getElementById('nameSaveBtn');
+  const name = input.value.trim();
+  const d = devices.find(d => d.ip === selectedIp);
+
+  if (!name || !d || d.mac === 'unknown') return;
+
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  try {
+    const resp = await fetch(`/api/devices/${encodeURIComponent(d.mac)}/name`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+
+    if (resp.ok) {
+      showToast(`Named "${name}"`);
+      // Optimistically update local state
+      d.label = name;
+      d.label_source = 'known';
+      d.identity_status = 'claimed';
+      d.label_authoritative = true;
+      render();
+    } else {
+      const err = await resp.json();
+      showToast(`Error: ${err.detail || 'Failed to save'}`);
+    }
+  } catch (e) {
+    showToast('Network error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Save';
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildClue(d) {
+  const fp = d.fingerprint || {};
+  if (fp.manufacturer && fp.model) return `${fp.manufacturer} ${fp.model}`;
+  if (fp.manufacturer) return fp.manufacturer;
+  if (d.vendor) return d.vendor;
+  return '';
+}
+
+function formatLastSeen(ts) {
+  if (!ts) return 'unknown';
+  const d = new Date(ts);
+  const diff = Date.now() - d.getTime();
+  if (diff < 60000) return 'now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' min ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  return Math.floor(diff / 86400000) + 'd ago';
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return 'unknown';
+  return formatLastSeen(ts);
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), 2500);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+connectWs();
+</script>
+</body>
+</html>

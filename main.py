@@ -845,8 +845,9 @@ def print_display(history: dict, scan_count: int):
         d.get("first_seen", ""),
     ))
 
-    # Clear screen (works on Windows and Linux)
-    os.system('cls' if platform.system() == 'Windows' else 'clear')
+    # Clear screen (no subprocess — avoids ConPTY input buffer disruption on Windows)
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
     print("=" * 140)
     print(f"  NETWORK SCANNER - Scan #{scan_count} | Retention: {retention}h | Press Ctrl+C to exit")
@@ -875,7 +876,7 @@ def print_display(history: dict, scan_count: int):
         if d.get("identity_status") == "unidentified" and d.get("status") == "online"
     )
     if unnamed_count > 0:
-        print(f"  {unnamed_count} unnamed device(s) — press 'i' to name them")
+        print(f"  {unnamed_count} unnamed device(s) — type 'i' + Enter to name them")
 
     print()
 
@@ -1004,56 +1005,21 @@ def _run_identify_flow(subnet: str):
     print("  Returning to live scan...\n")
 
 
-def _get_key_press():
-    """Non-blocking keyboard input. Returns char or None."""
-    if platform.system() == "Windows":
-        import msvcrt
-        if msvcrt.kbhit():
-            return msvcrt.getch().decode("utf-8", errors="ignore")
-    else:
-        import select
-        if select.select([sys.stdin], [], [], 0)[0]:
-            ch = sys.stdin.read(1)
-            return ch if ch else None
-    return None
-
-
 def main():
-    import sys
+    import uvicorn
+    import webbrowser
 
-    subnet = "192.168.1.0/24"
-    history = load_history()
+    host = "127.0.0.1"
+    port = 8080
+    url = f"http://{host}:{port}"
 
-    # Start background scanner (daemon thread — dies with main)
-    scan_thread = threading.Thread(
-        target=_background_scan_loop,
-        args=(subnet, history, threading.Event(), 5),
-        daemon=True
-    )
-    scan_thread.start()
+    print(f"\n  OpenCircuit starting at {url}")
+    print(f"  Opening browser...\n")
 
-    # Main display + keyboard loop
-    scan_count = 0
-    try:
-        while True:
-            scan_count += 1
-            print_display(history, scan_count)
+    # Open browser after a short delay
+    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
-            # Wait 5 seconds, checking for keyboard input every second
-            for _ in range(5):
-                ch = _get_key_press()
-                if ch == "i":
-                    _run_identify_flow(subnet)
-                    break  # refresh display after identify
-                elif ch is not None and ord(ch) == 3:  # Ctrl+C
-                    raise KeyboardInterrupt
-                time.sleep(1)
-    except KeyboardInterrupt:
-        pass
-
-    print("\nStopping scanner...")
-    save_history(history)
-    print("Scanner stopped. Goodbye!")
+    uvicorn.run("server:app", host=host, port=port, log_level="info")
 
 if __name__ == "__main__":
     main()

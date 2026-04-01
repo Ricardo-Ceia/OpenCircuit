@@ -30,6 +30,7 @@ class BackgroundScanner:
         self._current_devices = []
         self._history = load_history()
         self._last_scan_time = None
+        self._on_scan_complete = []
 
     def start(self):
         """Start the background scanner thread."""
@@ -54,6 +55,10 @@ class BackgroundScanner:
         """Get the current device history (thread-safe)."""
         with self._lock:
             return dict(self._history)
+
+    def register_callback(self, fn):
+        """Register a function called after each scan: fn(devices, stats)."""
+        self._on_scan_complete.append(fn)
 
     def _run(self):
         """Main scanner loop."""
@@ -157,3 +162,10 @@ class BackgroundScanner:
             save_history(self._history)
 
         log.info(f"Scan complete: {len(self._current_devices)} devices in history")
+
+        # Notify callbacks
+        for fn in self._on_scan_complete:
+            try:
+                fn(self._current_devices)
+            except Exception as e:
+                log.error(f"Scan callback error: {e}")
