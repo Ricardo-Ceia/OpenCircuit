@@ -12,6 +12,7 @@ import sys
 from mac_vendors import MAC_VENDORS
 from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list, get_history_stats, _get_retention_hours
 from lockdownd import get_ios_device_info, get_model_display_name
+from identity import resolve_label
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -480,25 +481,6 @@ def build_fingerprint(ip: str, ssdp_info: dict, http_info: dict, upnp_info: dict
             if len(parts) >= 2:
                 fingerprint["device_type"] = parts[-2]
 
-    # HTTP title as fallback for friendly name
-    if not fingerprint["friendly_name"] and http_info.get("title"):
-        fingerprint["friendly_name"] = http_info["title"]
-
-    # SSDP SERVER header as fallback for manufacturer
-    if not fingerprint["manufacturer"] and ssdp_info:
-        server = ssdp_info.get("SERVER", "")
-        if server:
-            # Try to extract manufacturer from server string
-            # e.g., "Linux/3.10.0 UPnP/1.0" or "Microsoft-Windows/10.0"
-            if "Microsoft" in server:
-                fingerprint["manufacturer"] = "Microsoft"
-            elif "Linux" in server:
-                fingerprint["manufacturer"] = "Linux Device"
-            elif "Darwin" in server or "Mac" in server:
-                fingerprint["manufacturer"] = "Apple"
-            elif "iOS" in server or "iPhone" in server:
-                fingerprint["manufacturer"] = "Apple"
-
     return fingerprint
 
 def identify_device_services(ip: str) -> dict:
@@ -545,23 +527,11 @@ def identify_device_services(ip: str) -> dict:
     ssdp_info = probe_ssdp(ip, timeout=1.0)
     if ssdp_info:
         result["services"].append("UPnP/SSDP")
-        if "SERVER" in ssdp_info:
-            server = ssdp_info["SERVER"]
-            if "iOS" in server or "iPhone" in server or "iPad" in server:
-                result["device_type"] = "Apple iOS Device"
-            elif "Darwin" in server or "Mac" in server:
-                result["device_type"] = "Apple macOS Device"
-            elif "Linux" in server or "Ubuntu" in server:
-                result["device_type"] = "Linux Device"
-            elif "Windows" in server:
-                result["device_type"] = "Windows Device"
 
     # Fetch full HTTP info (title + headers)
     http_info = fetch_http_full(ip, port=80, timeout=1.5)
     if http_info.get("server"):
         result["services"].append(f"HTTP ({http_info['server']})")
-        if "iOS" in http_info["server"] or "AirPort" in http_info["server"]:
-            result["device_type"] = "Apple Device"
     if http_info.get("title"):
         result["services"].append(f"Title: {http_info['title']}")
 
@@ -581,11 +551,9 @@ def identify_device_services(ip: str) -> dict:
         fingerprint = build_fingerprint(ip, ssdp_info or {}, http_info, upnp_info)
         result["fingerprint"] = fingerprint
 
-        # Use fingerprint for device type if available
+        # Use UPnP XML device type only (no heuristic fallback)
         if fingerprint.get("device_type") and not result["device_type"]:
             result["device_type"] = fingerprint["device_type"]
-        elif fingerprint.get("manufacturer") and not result["device_type"]:
-            result["device_type"] = fingerprint["manufacturer"]
 
     return result
 
@@ -754,7 +722,6 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 
     results = []
     for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
-        hostname = mdns_map.get(ip) or rdns_map.get(ip, "unknown")
         mac_info = mac_map.get(ip, {})
         vendor = mac_info.get("vendor")
         mac = mac_info.get("mac", "unknown")
@@ -764,13 +731,22 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         services = service_info.get("services", [])
         fingerprint = service_info.get("fingerprint", {})
 
-        # Use fingerprint for better display name
-        if fingerprint.get("friendly_name"):
-            hostname = fingerprint["friendly_name"]
-        elif fingerprint.get("manufacturer") and fingerprint.get("model"):
-            hostname = f"{fingerprint['manufacturer']} {fingerprint['model']}"
-        elif hostname == "unknown" and device_type:
-            hostname = device_type
+        # Strict label resolution — no guessing
+        mdns_hostname = mdns_map.get(ip)
+        lockdownd_name = fingerprint.get("friendly_name") if fingerprint.get("device_type") == "iPhone" else None
+        lockdownd_ok = any(s.startswith("lockdownd:") for s in services)
+        upnp_name = fingerprint.get("friendly_name") if not lockdownd_ok else None
+        upnp_type = fingerprint.get("device_type") if not lockdownd_ok else None
+        ios_port = any("lockdownd (port" in s for s in services)
+
+        label_info = resolve_label(
+            mdns_hostname=mdns_hostname,
+            lockdownd_device_name=lockdownd_name,
+            lockdownd_success=lockdownd_ok,
+            upnp_friendly_name=upnp_name,
+            upnp_device_type=upnp_type,
+            ios_port_detected=ios_port,
+        )
 
         sources = []
         if ip in live_ips: sources.append("ping")
@@ -781,7 +757,11 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 
         results.append({
             "ip": ip,
-            "hostname": hostname,
+            "label": label_info["label"],
+            "label_source": label_info["label_source"],
+            "label_authoritative": label_info["label_authoritative"],
+            "identity_status": label_info["identity_status"],
+            "hostname": mdns_map.get(ip) or rdns_map.get(ip, "unknown"),
             "mac": mac,
             "vendor": vendor,
             "device_type": device_type,
@@ -833,30 +813,24 @@ def print_display(history: dict, scan_count: int):
     print("=" * 130)
     print(f"  NETWORK SCANNER - Scan #{scan_count} | Retention: {retention}h | Press Ctrl+C to exit")
     print("=" * 130)
-    print(f"\n{'IP':<18} {'Hostname':<25} {'Status':<10} {'Last Seen':<12} {'Vendor':<15} {'MAC':<18} {'Source'}")
+    print(f"\n{'IP':<18} {'Label':<30} {'Identity':<14} {'Status':<10} {'Last Seen':<12} {'MAC':<18} {'Source'}")
     print("-" * 130)
 
     for d in devices:
-        vendor = d.get('vendor') or "unknown"
         mac = d.get('mac', 'unknown')
         status = "ONLINE" if d.get('status') == 'online' else "OFFLINE"
         last_seen = format_last_seen(d.get('last_seen', ''))
         sources = d.get('sources', d.get('source', []))
         if isinstance(sources, str):
             sources = sources.split('+') if sources else []
-        
-        # Show fingerprint info if available
-        fingerprint = d.get('fingerprint', {})
-        if fingerprint and fingerprint.get('manufacturer'):
-            model_str = fingerprint['manufacturer']
-            if fingerprint.get('model'):
-                model_str += f" {fingerprint['model']}"
-            vendor = model_str
 
-        print(f"{d['ip']:<18} {d['hostname']:<25} {status:<10} {last_seen:<12} {vendor:<15} {mac:<18} {'+'.join(sources)}")
+        label = d.get('label', d.get('hostname', 'Unidentified device'))
+        identity = d.get('identity_status', 'unidentified')
+
+        print(f"{d['ip']:<18} {label:<30} {identity:<14} {status:<10} {last_seen:<12} {mac:<18} {'+'.join(sources)}")
 
     print("-" * 130)
-    print(f"  Total: {stats['total']} | Online: {stats['online']} | Offline: {stats['offline']} | Named: {stats['named']}")
+    print(f"  Total: {stats['total']} | Online: {stats['online']} | Offline: {stats['offline']} | Verified: {stats['verified']} | Unidentified: {stats['unidentified']}")
     print()
 
 def main():

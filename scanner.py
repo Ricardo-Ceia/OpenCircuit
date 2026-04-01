@@ -12,6 +12,7 @@ from main import (
     bulk_service_probe,
 )
 from device_history import load_history, save_history, merge_scan
+from identity import resolve_label
 
 log = logging.getLogger(__name__)
 
@@ -98,11 +99,26 @@ class BackgroundScanner:
             vendor = mac_info.get("vendor")
             mac = mac_info.get("mac", "unknown")
             service_info = service_map.get(ip, {})
-            device_type = service_info.get("device_type")
             services = service_info.get("services", [])
+            fingerprint = service_info.get("fingerprint", {})
+            device_type = service_info.get("device_type")
 
-            if hostname == "unknown" and device_type:
-                hostname = device_type
+            # Strict label resolution — no guessing
+            mdns_hostname = mdns_map.get(ip)
+            lockdownd_name = fingerprint.get("friendly_name") if fingerprint.get("device_type") == "iPhone" else None
+            lockdownd_ok = any(s.startswith("lockdownd:") for s in services)
+            upnp_name = fingerprint.get("friendly_name") if not lockdownd_ok else None
+            upnp_type = fingerprint.get("device_type") if not lockdownd_ok else None
+            ios_port = any("lockdownd (port" in s for s in services)
+
+            label_info = resolve_label(
+                mdns_hostname=mdns_hostname,
+                lockdownd_device_name=lockdownd_name,
+                lockdownd_success=lockdownd_ok,
+                upnp_friendly_name=upnp_name,
+                upnp_device_type=upnp_type,
+                ios_port_detected=ios_port,
+            )
 
             sources = []
             if ip in live_ips: sources.append("ping")
@@ -113,9 +129,14 @@ class BackgroundScanner:
 
             current_scan.append({
                 "ip": ip,
-                "hostname": hostname,
+                "label": label_info["label"],
+                "label_source": label_info["label_source"],
+                "label_authoritative": label_info["label_authoritative"],
+                "identity_status": label_info["identity_status"],
+                "hostname": mdns_map.get(ip) or rdns_map.get(ip, "unknown"),
                 "mac": mac,
                 "vendor": vendor,
+                "fingerprint": fingerprint,
                 "services": services,
                 "source": "+".join(sources)
             })

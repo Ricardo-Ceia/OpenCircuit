@@ -57,13 +57,14 @@ def clean_expired_devices(history: dict, retention_hours: int | None = None) -> 
 def get_history_stats(history: dict) -> dict:
     """Get statistics about the device history."""
     if not history:
-        return {"total": 0, "online": 0, "offline": 0, "named": 0}
-    
+        return {"total": 0, "online": 0, "offline": 0, "verified": 0, "unidentified": 0}
+
     return {
         "total": len(history),
         "online": sum(1 for d in history.values() if d.get("status") == "online"),
         "offline": sum(1 for d in history.values() if d.get("status") == "offline"),
-        "named": sum(1 for d in history.values() if d.get("hostname", "unknown") != "unknown"),
+        "verified": sum(1 for d in history.values() if d.get("identity_status") == "verified"),
+        "unidentified": sum(1 for d in history.values() if d.get("identity_status") == "unidentified"),
     }
 
 def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | None = None) -> dict:
@@ -72,6 +73,7 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | N
     - Updates last_seen for devices found in current scan
     - Marks devices not in current scan as offline
     - Removes devices older than retention period
+    - Enforces label precedence: authoritative labels are never overwritten by non-authoritative
     
     Args:
         current_scan: List of device dicts from current scan
@@ -94,12 +96,22 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | N
         if ip in history:
             # Update existing device
             history[ip]["last_seen"] = now
-            history[ip]["hostname"] = device.get("hostname", history[ip].get("hostname", "unknown"))
             history[ip]["mac"] = device.get("mac", history[ip].get("mac", "unknown"))
             history[ip]["vendor"] = device.get("vendor") or history[ip].get("vendor")
             history[ip]["sources"] = device.get("source", history[ip].get("sources", []))
             history[ip]["services"] = device.get("services", history[ip].get("services", []))
             history[ip]["status"] = "online"
+
+            # Label precedence: authoritative never overwritten by non-authoritative
+            incoming_auth = device.get("label_authoritative", False)
+            existing_auth = history[ip].get("label_authoritative", False)
+            if incoming_auth or not existing_auth:
+                history[ip]["label"] = device.get("label", history[ip].get("label", "Unidentified device"))
+                history[ip]["label_source"] = device.get("label_source", history[ip].get("label_source", "unidentified"))
+                history[ip]["label_authoritative"] = incoming_auth
+                history[ip]["identity_status"] = device.get("identity_status", "unidentified")
+            # Also keep hostname for backward compat
+            history[ip]["hostname"] = device.get("hostname", history[ip].get("hostname", "unknown"))
             
             # Update fingerprint if available and has data
             fingerprint = device.get("fingerprint", {})
@@ -114,6 +126,10 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | N
             # New device
             history[ip] = {
                 "ip": ip,
+                "label": device.get("label", "Unidentified device"),
+                "label_source": device.get("label_source", "unidentified"),
+                "label_authoritative": device.get("label_authoritative", False),
+                "identity_status": device.get("identity_status", "unidentified"),
                 "hostname": device.get("hostname", "unknown"),
                 "mac": device.get("mac", "unknown"),
                 "vendor": device.get("vendor"),
