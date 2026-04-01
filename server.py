@@ -11,6 +11,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
@@ -20,12 +21,13 @@ from pydantic import BaseModel
 from scanner import BackgroundScanner
 from identity import assign_stable_aliases
 from device_history import get_history_stats
-from known_devices import get_known_name, set_known_name
+from known_devices import set_known_name
 
 log = logging.getLogger(__name__)
 
 SUBNET = os.environ.get("SUBNET", "192.168.1.0/24")
 scanner = BackgroundScanner(subnet=SUBNET)
+event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # ─── WebSocket connection pool ────────────────────────────────────────────
 
@@ -37,10 +39,11 @@ async def broadcast_update(devices: list[dict]):
     if not connected_clients:
         return
     stats = get_history_stats(scanner.get_history())
-    assign_stable_aliases(devices)
+    payload_devices = [dict(d) for d in devices]
+    assign_stable_aliases(payload_devices)
     msg = json.dumps({
         "type": "scan_update",
-        "devices": devices,
+        "devices": payload_devices,
         "stats": stats,
         "last_scan": datetime.now().isoformat(),
     })
@@ -55,17 +58,20 @@ async def broadcast_update(devices: list[dict]):
 
 def _on_scan_done(devices: list[dict]):
     """Called by BackgroundScanner after each scan (runs in scanner thread)."""
+    if event_loop is None:
+        return
     try:
-        loop = asyncio.get_running_loop()
-        loop.call_soon_threadsafe(lambda: asyncio.create_task(broadcast_update(devices)))
-    except RuntimeError:
-        pass
+        asyncio.run_coroutine_threadsafe(broadcast_update(devices), event_loop)
+    except Exception as e:
+        log.error(f"Failed to schedule WS broadcast: {e}")
 
 
 # ─── App lifecycle ────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global event_loop
+    event_loop = asyncio.get_running_loop()
     scanner.register_callback(_on_scan_done)
     scanner.start()
     log.info(f"Scanner started on {SUBNET}")
@@ -76,7 +82,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OpenCircuit", lifespan=lifespan)
 
-STATIC_DIR = Path(__file__).parent / "web" / "static"
+PRIMARY_STATIC_DIR = Path(__file__).parent / "web" / "static-svelte"
+LEGACY_STATIC_DIR = Path(__file__).parent / "web" / "static"
+STATIC_DIR = PRIMARY_STATIC_DIR if PRIMARY_STATIC_DIR.exists() else LEGACY_STATIC_DIR
+
+if (STATIC_DIR / "_app").exists():
+    app.mount("/_app", StaticFiles(directory=STATIC_DIR / "_app"), name="svelte-app")
 
 
 # ─── REST endpoints ───────────────────────────────────────────────────────
@@ -86,9 +97,17 @@ async def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/robots.txt")
+async def robots():
+    robots_path = STATIC_DIR / "robots.txt"
+    if robots_path.exists():
+        return FileResponse(robots_path)
+    raise HTTPException(status_code=404, detail="Not found")
+
+
 @app.get("/api/devices")
 async def list_devices():
-    devices = scanner.get_devices()
+    devices = [dict(d) for d in scanner.get_devices()]
     assign_stable_aliases(devices)
     stats = get_history_stats(scanner.get_history())
     return {
@@ -138,7 +157,7 @@ async def websocket_endpoint(ws: WebSocket):
     connected_clients.add(ws)
 
     # Send current state immediately
-    devices = scanner.get_devices()
+    devices = [dict(d) for d in scanner.get_devices()]
     assign_stable_aliases(devices)
     stats = get_history_stats(scanner.get_history())
     await ws.send_text(json.dumps({

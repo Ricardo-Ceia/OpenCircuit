@@ -5,4 +5,7 @@ future_things.md
 __pycache__
 debug_log.txt
 
+# SvelteKit UI
+web/ui/node_modules/
+web/ui/.svelte-kit/
 
