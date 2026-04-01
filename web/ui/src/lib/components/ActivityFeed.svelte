@@ -1,28 +1,16 @@
 <script lang="ts">
-	import type { Device } from '$lib/types';
-	import { relativeTime } from '$lib/utils';
-
-	type Props = {
-		devices: Device[];
+	type ActivityItem = {
+		id: string;
+		label: string;
+		status: string;
+		time: string;
 	};
 
-	let { devices }: Props = $props();
+	type Props = {
+		items: ActivityItem[];
+	};
 
-	const items = $derived(
-		[...devices]
-			.filter((d) => d.last_seen)
-			.sort((a, b) => (b.last_seen ?? '').localeCompare(a.last_seen ?? ''))
-			.slice(0, 8)
-			.map((d) => {
-				const status = (d.status ?? 'offline') === 'online' ? 'seen online' : 'offline';
-				return {
-					id: d.ip,
-					label: d.label,
-					status,
-					time: relativeTime(d.last_seen)
-				};
-			})
-	);
+	let { items }: Props = $props();
 </script>
 
 <section class="panel feed">

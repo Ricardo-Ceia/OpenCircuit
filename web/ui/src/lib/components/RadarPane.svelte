@@ -9,6 +9,7 @@
 	};
 
 	let { devices, selectedIp, onSelect }: Props = $props();
+	const MAX_ANIMATED_PINGS = 18;
 
 	function hueFor(device: Device): number {
 		if (device.identity_status === 'unidentified') return 42;
@@ -39,6 +40,7 @@
 
 		{#each devices as device, i}
 			{@const p = position(i, devices.length)}
+			{@const pingEnabled = isOnline(device) && i < MAX_ANIMATED_PINGS}
 			<button
 				type="button"
 				class={`blip ${device.ip === selectedIp ? 'selected' : ''} ${isOnline(device) ? 'online' : 'offline'}`}
@@ -46,7 +48,9 @@
 				style={`left:${p.x}%;top:${p.y}%;--h:${hueFor(device)}`}
 				title={`${device.label} • ${device.ip}`}
 			>
-				<span class="ping"></span>
+				{#if pingEnabled}
+					<span class="ping"></span>
+				{/if}
 			</button>
 		{/each}
 	</div>
@@ -129,7 +133,7 @@
 	}
 
 	.blip.offline {
-		filter: grayscale(0.6);
+		background: color-mix(in oklab, hsl(var(--h) 68% 48%) 52%, var(--tone-muted));
 		opacity: 0.55;
 	}
 
@@ -144,10 +148,6 @@
 		border-radius: 999px;
 		border: 1px solid color-mix(in oklab, hsl(var(--h) 88% 62%) 45%, transparent);
 		animation: ping 3.2s ease-out infinite;
-	}
-
-	.blip.offline .ping {
-		display: none;
 	}
 
 	@keyframes sweep {

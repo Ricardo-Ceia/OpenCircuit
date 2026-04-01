@@ -8,9 +8,17 @@
 	import TopBar from '$lib/components/TopBar.svelte';
 	import { fetchDevices } from '$lib/api';
 	import type { Device, DeviceStats, DevicesResponse } from '$lib/types';
-	import { sortDevices } from '$lib/utils';
+	import { relativeTime, sortDevices } from '$lib/utils';
+
+	type ActivityItem = {
+		id: string;
+		label: string;
+		status: string;
+		time: string;
+	};
 
 	let devices = $state<Device[]>([]);
+	let activityItems = $state<ActivityItem[]>([]);
 	let stats = $state<DeviceStats>({
 		total: 0,
 		online: 0,
@@ -23,7 +31,10 @@
 	let selectedIp = $state<string | null>(null);
 	let connection = $state<'connecting' | 'connected' | 'disconnected'>('connecting');
 	let ws: WebSocket | null = null;
+	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastPayloadStamp = '';
+	let queuedPayload: DevicesResponse | null = null;
+	let queuedFrame = 0;
 
 	const selectedDevice = $derived(devices.find((d) => d.ip === selectedIp) ?? null);
 	const unnamedCount = $derived(devices.filter((d) => d.identity_status === 'unidentified').length);
@@ -43,6 +54,19 @@
 		return parts.join('~');
 	}
 
+	function buildActivityItems(nextDevices: Device[]): ActivityItem[] {
+		return [...nextDevices]
+			.filter((d) => d.last_seen)
+			.sort((a, b) => (b.last_seen ?? '').localeCompare(a.last_seen ?? ''))
+			.slice(0, 8)
+			.map((d) => ({
+				id: d.ip,
+				label: d.label,
+				status: (d.status ?? 'offline') === 'online' ? 'seen online' : 'offline',
+				time: relativeTime(d.last_seen)
+			}));
+	}
+
 	function applyState(payload: DevicesResponse) {
 		const stamp = payloadStamp(payload);
 		if (stamp === lastPayloadStamp) {
@@ -51,6 +75,7 @@
 		lastPayloadStamp = stamp;
 
 		devices = sortDevices(payload.devices ?? []);
+		activityItems = buildActivityItems(devices);
 		stats = payload.stats ?? stats;
 		if (!selectedIp && devices.length > 0) {
 			selectedIp = devices[0].ip;
@@ -74,11 +99,32 @@
 			};
 		});
 		devices = sortDevices(devices);
+		activityItems = buildActivityItems(devices);
 		stats = {
 			...stats,
 			claimed: devices.filter((d) => d.identity_status === 'claimed').length,
 			unidentified: devices.filter((d) => d.identity_status === 'unidentified').length
 		};
+	}
+
+	function selectDevice(ip: string) {
+		selectedIp = ip;
+	}
+
+	function queueStateApply(payload: DevicesResponse) {
+		queuedPayload = payload;
+		if (queuedFrame) {
+			return;
+		}
+		queuedFrame = requestAnimationFrame(() => {
+			queuedFrame = 0;
+			if (!queuedPayload) {
+				return;
+			}
+			const next = queuedPayload;
+			queuedPayload = null;
+			applyState(next);
+		});
 	}
 
 	async function hydrate() {
@@ -101,7 +147,7 @@
 		ws.onmessage = (event) => {
 			try {
 				const payload = JSON.parse(event.data) as DevicesResponse;
-				applyState(payload);
+				queueStateApply(payload);
 			} catch {
 				// ignore malformed frames
 			}
@@ -109,7 +155,7 @@
 
 		ws.onclose = () => {
 			connection = 'disconnected';
-			setTimeout(() => {
+			reconnectTimer = setTimeout(() => {
 				connection = 'connecting';
 				connectWs();
 			}, 2200);
@@ -125,6 +171,14 @@
 		connectWs();
 
 		return () => {
+			if (reconnectTimer) {
+				clearTimeout(reconnectTimer);
+				reconnectTimer = null;
+			}
+			if (queuedFrame) {
+				cancelAnimationFrame(queuedFrame);
+				queuedFrame = 0;
+			}
 			ws?.close();
 		};
 	});
@@ -137,7 +191,7 @@
 
 	<main class="layout">
 		<div class="left-stack">
-			<DeviceList devices={devices} {selectedIp} onSelect={(ip) => (selectedIp = ip)} />
+			<DeviceList devices={devices} {selectedIp} onSelect={selectDevice} />
 			<HintBar count={unnamedCount} />
 		</div>
 
@@ -146,8 +200,8 @@
 		</div>
 
 		<div class="right-stack">
-			<RadarPane devices={devices} {selectedIp} onSelect={(ip) => (selectedIp = ip)} />
-			<ActivityFeed devices={devices} />
+			<RadarPane devices={devices} {selectedIp} onSelect={selectDevice} />
+			<ActivityFeed items={activityItems} />
 		</div>
 	</main>
 </div>

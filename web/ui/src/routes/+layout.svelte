@@ -89,7 +89,6 @@
 		);
 		border: 1px solid var(--edge-soft);
 		border-radius: 0.72rem;
-		backdrop-filter: blur(2px);
 	}
 
 	:global(.panel-glow) {
