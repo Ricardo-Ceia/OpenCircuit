@@ -6,6 +6,7 @@ Authoritative (verified):
   - mDNS .local self-announced hostname
 
 High-trust (identified):
+  - Reverse DNS hostname (network-assigned, e.g. LGwebOSTV.home)
   - UPnP friendlyName from device description XML
 
 Category fallback (unidentified):
@@ -13,11 +14,58 @@ Category fallback (unidentified):
   - Unidentified device when nothing is available
 
 Never used as label:
-  - HTTP title, HTTP/SSDP server headers, reverse DNS, MAC vendor
+  - HTTP title, HTTP/SSDP server headers, MAC vendor
 """
 
 from __future__ import annotations
 from typing import Optional
+import re
+
+_UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+_LOCAL_TLDS = {".home", ".lan", ".local", ".internal"}
+
+
+def _is_machine_generated(name: str) -> bool:
+    """Check if a hostname is a machine-generated identifier, not a human name."""
+    return bool(_UUID_PATTERN.match(name))
+
+
+def _strip_local_tld(hostname: str) -> str:
+    """Strip common local TLDs for cleaner display. LGwebOSTV.home -> LGwebOSTV"""
+    h = hostname.strip()
+    for tld in _LOCAL_TLDS:
+        if h.lower().endswith(tld):
+            return h[: -len(tld)]
+    return h
+
+
+def is_valid_rdns_label(hostname: str | None) -> bool:
+    """Check if a reverse DNS hostname is a usable device label."""
+    if not hostname:
+        return False
+    h = hostname.strip()
+    if h.lower() == "unknown":
+        return False
+    # Must have a dot (FQDN like LGwebOSTV.home)
+    if "." not in h:
+        return False
+    name = _strip_local_tld(h)
+    if not name:
+        return False
+    # Skip PTR/in-addr.arpa
+    if ".in-addr.arpa" in name.lower():
+        return False
+    # Skip IP-shaped names
+    parts = name.split(".")
+    if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        return False
+    # Skip machine-generated identifiers
+    if _is_machine_generated(name.lower()):
+        return False
+    return True
 
 
 def is_valid_mdns_label(hostname: str | None) -> bool:
@@ -36,6 +84,9 @@ def is_valid_mdns_label(hostname: str | None) -> bool:
     # Skip IP-shaped names (e.g. "1.0.168.192")
     parts = name.split(".")
     if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        return False
+    # Skip machine-generated identifiers (UUIDs, random hex)
+    if _is_machine_generated(name):
         return False
     return True
 
@@ -69,6 +120,7 @@ def resolve_label(
     mdns_hostname: str | None,
     lockdownd_device_name: str | None,
     lockdownd_success: bool,
+    rdns_hostname: str | None = None,
     upnp_friendly_name: str | None,
     upnp_device_type: str | None,
     ios_port_detected: bool,
@@ -78,7 +130,7 @@ def resolve_label(
 
     Returns:
         label: The device name or "Unidentified [type]" / "Unidentified device"
-        label_source: "lockdownd" | "mdns" | "upnp" | "device_type" | "unidentified"
+        label_source: "lockdownd" | "mdns" | "rdns" | "upnp" | "device_type" | "unidentified"
         label_authoritative: True only for lockdownd or mDNS
         identity_status: "verified" | "identified" | "unidentified"
     """
@@ -102,7 +154,16 @@ def resolve_label(
             "identity_status": "verified",
         }
 
-    # 3. UPnP friendlyName from XML (identified, non-authoritative)
+    # 3. Reverse DNS hostname (identified, non-authoritative)
+    if rdns_hostname and is_valid_rdns_label(rdns_hostname):
+        return {
+            "label": _strip_local_tld(rdns_hostname),
+            "label_source": "rdns",
+            "label_authoritative": False,
+            "identity_status": "identified",
+        }
+
+    # 4. UPnP friendlyName from XML (identified, non-authoritative)
     if upnp_friendly_name and upnp_friendly_name.strip():
         return {
             "label": upnp_friendly_name.strip(),

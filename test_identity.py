@@ -1,7 +1,7 @@
 """Tests for identity resolution and merge precedence."""
 
 import pytest
-from identity import resolve_label, is_valid_mdns_label
+from identity import resolve_label, is_valid_mdns_label, is_valid_rdns_label, _strip_local_tld
 from device_history import merge_scan
 
 
@@ -30,6 +30,41 @@ class TestIsValidMdnsLabel:
     def test_just_local(self):
         assert is_valid_mdns_label("local") is False
 
+    def test_uuid_mdns_rejected(self):
+        assert is_valid_mdns_label("5dc1fcd1-04aa-49a0-a124-dd374f7d36db.local") is False
+
+    def test_uuid_case_insensitive(self):
+        assert is_valid_mdns_label("5DC1FCD1-04AA-49A0-A124-DD374F7D36DB.local") is False
+
+
+class TestIsValidRdnsLabel:
+    def test_valid_home_hostname(self):
+        assert is_valid_rdns_label("LGwebOSTV.home") is True
+
+    def test_valid_laptop_hostname(self):
+        assert is_valid_rdns_label("LAPTOP-U04CM6E5.home") is True
+
+    def test_none(self):
+        assert is_valid_rdns_label(None) is False
+
+    def test_unknown_rejected(self):
+        assert is_valid_rdns_label("unknown") is False
+
+    def test_no_dot_rejected(self):
+        assert is_valid_rdns_label("standalone") is False
+
+    def test_uuid_rejected(self):
+        assert is_valid_rdns_label("5dc1fcd1-04aa-49a0-a124-dd374f7d36db.home") is False
+
+    def test_strip_home_tld(self):
+        assert _strip_local_tld("LGwebOSTV.home") == "LGwebOSTV"
+
+    def test_strip_lan_tld(self):
+        assert _strip_local_tld("router.lan") == "router"
+
+    def test_strip_preserves_case(self):
+        assert _strip_local_tld("PT-GM0890XW.home") == "PT-GM0890XW"
+
 
 class TestResolveLabel:
     """Verify strict label resolution priority and no-guess policy."""
@@ -38,6 +73,7 @@ class TestResolveLabel:
         mdns_hostname=None,
         lockdownd_device_name=None,
         lockdownd_success=False,
+        rdns_hostname=None,
         upnp_friendly_name=None,
         upnp_device_type=None,
         ios_port_detected=False,
@@ -88,6 +124,37 @@ class TestResolveLabel:
         assert r["label_source"] == "mdns"
         assert r["label_authoritative"] is True
 
+    def test_rdns_hostname(self):
+        r = self._resolve(rdns_hostname="LGwebOSTV.home")
+        assert r["label"] == "LGwebOSTV"
+        assert r["label_source"] == "rdns"
+        assert r["label_authoritative"] is False
+        assert r["identity_status"] == "identified"
+
+    def test_rdns_laptop(self):
+        r = self._resolve(rdns_hostname="LAPTOP-U04CM6E5.home")
+        assert r["label"] == "LAPTOP-U04CM6E5"
+        assert r["label_source"] == "rdns"
+
+    def test_rdns_not_used_when_mdns_available(self):
+        r = self._resolve(
+            mdns_hostname="tv.local",
+            rdns_hostname="LGwebOSTV.home",
+        )
+        assert r["label_source"] == "mdns"
+
+    def test_rdns_wins_over_upnp(self):
+        r = self._resolve(
+            rdns_hostname="LGwebOSTV.home",
+            upnp_friendly_name="HUB5",
+        )
+        assert r["label_source"] == "rdns"
+        assert r["label"] == "LGwebOSTV"
+
+    def test_rdns_unknown_rejected(self):
+        r = self._resolve(rdns_hostname="unknown")
+        assert r["identity_status"] == "unidentified"
+
     def test_ios_port_only_gives_unidentified_type(self):
         r = self._resolve(ios_port_detected=True)
         assert r["label"] == "Unidentified Apple iOS Device"
@@ -121,6 +188,21 @@ class TestResolveLabel:
     def test_empty_upnp_friendly_name_treated_as_none(self):
         r = self._resolve(upnp_friendly_name="   ")
         assert r["identity_status"] == "unidentified"
+
+    def test_uuid_mdns_falls_through(self):
+        r = self._resolve(mdns_hostname="5dc1fcd1-04aa-49a0-a124-dd374f7d36db.local")
+        # UUID mDNS name is not a real label — falls through
+        assert r["identity_status"] == "unidentified"
+        assert r["label"] == "Unidentified device"
+        assert r["label_authoritative"] is False
+
+    def test_uuid_mdns_upnp_used_instead(self):
+        r = self._resolve(
+            mdns_hostname="5dc1fcd1-04aa-49a0-a124-dd374f7d36db.local",
+            upnp_friendly_name="Arcadyan Extender",
+        )
+        assert r["label"] == "Arcadyan Extender"
+        assert r["label_source"] == "upnp"
 
 
 class TestMergePrecedence:

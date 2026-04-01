@@ -733,6 +733,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 
         # Strict label resolution — no guessing
         mdns_hostname = mdns_map.get(ip)
+        rdns_hostname = rdns_map.get(ip)
         lockdownd_name = fingerprint.get("friendly_name") if fingerprint.get("device_type") == "iPhone" else None
         lockdownd_ok = any(s.startswith("lockdownd:") for s in services)
         upnp_name = fingerprint.get("friendly_name") if not lockdownd_ok else None
@@ -743,6 +744,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
             mdns_hostname=mdns_hostname,
             lockdownd_device_name=lockdownd_name,
             lockdownd_success=lockdownd_ok,
+            rdns_hostname=rdns_hostname,
             upnp_friendly_name=upnp_name,
             upnp_device_type=upnp_type,
             ios_port_detected=ios_port,
@@ -810,11 +812,11 @@ def print_display(history: dict, scan_count: int):
     # Clear screen (works on Windows and Linux)
     os.system('cls' if platform.system() == 'Windows' else 'clear')
 
-    print("=" * 130)
+    print("=" * 150)
     print(f"  NETWORK SCANNER - Scan #{scan_count} | Retention: {retention}h | Press Ctrl+C to exit")
-    print("=" * 130)
-    print(f"\n{'IP':<18} {'Label':<30} {'Identity':<14} {'Status':<10} {'Last Seen':<12} {'MAC':<18} {'Source'}")
-    print("-" * 130)
+    print("=" * 150)
+    print(f"\n{'IP':<18} {'Label':<26} {'Source':<10} {'Identity':<14} {'Status':<10} {'Last Seen':<12} {'MAC':<18} {'Scans'}")
+    print("-" * 150)
 
     for d in devices:
         mac = d.get('mac', 'unknown')
@@ -826,10 +828,11 @@ def print_display(history: dict, scan_count: int):
 
         label = d.get('label', d.get('hostname', 'Unidentified device'))
         identity = d.get('identity_status', 'unidentified')
+        label_src = d.get('label_source', 'unidentified')
 
-        print(f"{d['ip']:<18} {label:<30} {identity:<14} {status:<10} {last_seen:<12} {mac:<18} {'+'.join(sources)}")
+        print(f"{d['ip']:<18} {label:<26} {label_src:<10} {identity:<14} {status:<10} {last_seen:<12} {mac:<18} {'+'.join(sources)}")
 
-    print("-" * 130)
+    print("-" * 150)
     print(f"  Total: {stats['total']} | Online: {stats['online']} | Offline: {stats['offline']} | Verified: {stats['verified']} | Unidentified: {stats['unidentified']}")
     print()
 

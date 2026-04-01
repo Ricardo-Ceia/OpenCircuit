@@ -105,6 +105,7 @@ class BackgroundScanner:
 
             # Strict label resolution — no guessing
             mdns_hostname = mdns_map.get(ip)
+            rdns_hostname = rdns_map.get(ip)
             lockdownd_name = fingerprint.get("friendly_name") if fingerprint.get("device_type") == "iPhone" else None
             lockdownd_ok = any(s.startswith("lockdownd:") for s in services)
             upnp_name = fingerprint.get("friendly_name") if not lockdownd_ok else None
@@ -115,6 +116,7 @@ class BackgroundScanner:
                 mdns_hostname=mdns_hostname,
                 lockdownd_device_name=lockdownd_name,
                 lockdownd_success=lockdownd_ok,
+                rdns_hostname=rdns_hostname,
                 upnp_friendly_name=upnp_name,
                 upnp_device_type=upnp_type,
                 ios_port_detected=ios_port,
