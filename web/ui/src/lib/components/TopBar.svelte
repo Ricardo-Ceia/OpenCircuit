@@ -121,6 +121,8 @@
 		font-family: var(--display);
 		font-size: 1rem;
 		line-height: 1;
+		font-variant-numeric: tabular-nums;
+		min-inline-size: 2ch;
 	}
 
 	.name {

@@ -46,6 +46,7 @@
 	:global(body) {
 		margin: 0;
 		padding: 0;
+		height: 100%;
 		font-family: var(--body);
 		font-size: 14px;
 		line-height: 1.45;
@@ -56,6 +57,7 @@
 		color: var(--tone-text);
 		min-height: 100%;
 		overflow: hidden;
+		scrollbar-gutter: stable;
 	}
 
 	:global(body::before) {

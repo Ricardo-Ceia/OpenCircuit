@@ -86,6 +86,7 @@
 		gap: 0.38rem;
 		min-block-size: 0;
 		overflow: auto;
+		scrollbar-gutter: stable;
 	}
 
 	li {

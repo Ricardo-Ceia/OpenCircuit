@@ -159,7 +159,8 @@
 		padding: clamp(0.6rem, 1.4vw, 1rem);
 		max-inline-size: 1800px;
 		margin-inline: auto;
-		min-block-size: 100dvh;
+		height: 100dvh;
+		min-block-size: 0;
 	}
 
 	.layout {

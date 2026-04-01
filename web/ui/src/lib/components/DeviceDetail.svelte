@@ -155,6 +155,7 @@
 		gap: 0.85rem;
 		min-block-size: 0;
 		overflow: auto;
+		scrollbar-gutter: stable;
 	}
 
 	.empty {

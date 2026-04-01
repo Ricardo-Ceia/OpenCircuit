@@ -84,6 +84,7 @@
 
 	.cards {
 		overflow: auto;
+		scrollbar-gutter: stable;
 		padding: 0.45rem;
 		display: grid;
 		gap: 0.4rem;
