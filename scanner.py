@@ -13,6 +13,7 @@ from main import (
 )
 from device_history import load_history, save_history, merge_scan
 from identity import resolve_label
+from known_devices import get_known_name
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +104,9 @@ class BackgroundScanner:
             fingerprint = service_info.get("fingerprint", {})
             device_type = service_info.get("device_type")
 
+            # Check for user-assigned name
+            known_name = get_known_name(mac)
+
             # Strict label resolution — no guessing
             mdns_hostname = mdns_map.get(ip)
             rdns_hostname = rdns_map.get(ip)
@@ -120,6 +124,7 @@ class BackgroundScanner:
                 upnp_friendly_name=upnp_name,
                 upnp_device_type=upnp_type,
                 ios_port_detected=ios_port,
+                known_name=known_name,
             )
 
             sources = []

@@ -12,7 +12,8 @@ import sys
 from mac_vendors import MAC_VENDORS
 from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list, get_history_stats, _get_retention_hours
 from lockdownd import get_ios_device_info, get_model_display_name
-from identity import resolve_label
+from identity import resolve_label, assign_stable_aliases
+from known_devices import get_known_name, set_known_name
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -731,6 +732,9 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         services = service_info.get("services", [])
         fingerprint = service_info.get("fingerprint", {})
 
+        # Check for user-assigned name
+        known_name = get_known_name(mac)
+
         # Strict label resolution — no guessing
         mdns_hostname = mdns_map.get(ip)
         rdns_hostname = rdns_map.get(ip)
@@ -748,6 +752,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
             upnp_friendly_name=upnp_name,
             upnp_device_type=upnp_type,
             ios_port_detected=ios_port,
+            known_name=known_name,
         )
 
         sources = []
@@ -803,41 +808,189 @@ def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Even
 
     log.info("Background scanner stopped")
 
+def _build_clue(d: dict) -> str:
+    """Build a plain-English clue string for a device."""
+    clues = []
+    fingerprint = d.get("fingerprint", {})
+    vendor = d.get("vendor")
+
+    # Brand from fingerprint or vendor
+    manufacturer = fingerprint.get("manufacturer")
+    model = fingerprint.get("model")
+    if manufacturer and model:
+        clues.append(f"{manufacturer} {model}")
+    elif manufacturer:
+        clues.append(manufacturer)
+    elif vendor:
+        clues.append(vendor)
+
+    return " · ".join(clues)
+
+
 def print_display(history: dict, scan_count: int):
     """Print the device table."""
     devices = get_history_as_list(history)
     stats = get_history_stats(history)
     retention = _get_retention_hours()
 
+    # Apply stable aliases for same-type devices
+    devices = assign_stable_aliases(devices)
+
+    # Sort: claimed first, then verified, identified, unidentified; online before offline
+    _identity_order = {"claimed": 0, "verified": 1, "identified": 2, "unidentified": 3}
+    _status_order = {"online": 0, "offline": 1}
+    devices.sort(key=lambda d: (
+        _identity_order.get(d.get("identity_status", "unidentified"), 9),
+        _status_order.get(d.get("status", "offline"), 9),
+        d.get("first_seen", ""),
+    ))
+
     # Clear screen (works on Windows and Linux)
     os.system('cls' if platform.system() == 'Windows' else 'clear')
 
-    print("=" * 150)
+    print("=" * 140)
     print(f"  NETWORK SCANNER - Scan #{scan_count} | Retention: {retention}h | Press Ctrl+C to exit")
-    print("=" * 150)
-    print(f"\n{'IP':<18} {'Label':<26} {'Source':<10} {'Identity':<14} {'Status':<10} {'Last Seen':<12} {'MAC':<18} {'Scans'}")
-    print("-" * 150)
+    print("=" * 140)
+    print(f"\n{'Label':<30} {'Clue':<28} {'Identity':<12} {'Status':<10} {'Last Seen':<12} {'IP':<18} {'Scans'}")
+    print("-" * 140)
 
     for d in devices:
-        mac = d.get('mac', 'unknown')
+        label = d.get('label', d.get('hostname', 'Unidentified device'))
+        identity = d.get('identity_status', 'unidentified')
         status = "ONLINE" if d.get('status') == 'online' else "OFFLINE"
         last_seen = format_last_seen(d.get('last_seen', ''))
         sources = d.get('sources', d.get('source', []))
         if isinstance(sources, str):
             sources = sources.split('+') if sources else []
+        clue = _build_clue(d)
 
-        label = d.get('label', d.get('hostname', 'Unidentified device'))
-        identity = d.get('identity_status', 'unidentified')
-        label_src = d.get('label_source', 'unidentified')
+        print(f"{label:<30} {clue:<28} {identity:<12} {status:<10} {last_seen:<12} {d['ip']:<18} {'+'.join(sources)}")
 
-        print(f"{d['ip']:<18} {label:<26} {label_src:<10} {identity:<14} {status:<10} {last_seen:<12} {mac:<18} {'+'.join(sources)}")
-
-    print("-" * 150)
+    print("-" * 140)
     print(f"  Total: {stats['total']} | Online: {stats['online']} | Offline: {stats['offline']} | Verified: {stats['verified']} | Unidentified: {stats['unidentified']}")
     print()
 
+def _run_identify_flow(subnet: str):
+    """Interactive flow to identify and name unnamed devices."""
+    import sys
+
+    print("\nScanning network for devices...\n")
+    scan_results = run_single_scan(subnet, mdns_timeout=5)
+
+    # Filter to only unidentified/identified devices without a known name
+    unnamed = []
+    for d in scan_results:
+        if d.get("identity_status") in ("claimed",):
+            continue
+        if d.get("label_source") == "known":
+            continue
+        mac = d.get("mac", "unknown")
+        if mac == "unknown":
+            continue
+        unnamed.append(d)
+
+    if not unnamed:
+        print("  All devices are already identified.")
+        print("  Run 'python main.py' to see your network.\n")
+        return
+
+    print(f"  {len(unnamed)} unnamed device(s) found:\n")
+
+    # Group same-type devices
+    assign_stable_aliases(unnamed)
+
+    for i, d in enumerate(unnamed, 1):
+        label = d.get("label", "Unknown")
+        status = "online" if d.get("status") == "online" else "offline"
+        clue = _build_clue(d)
+        clue_str = f"  ({clue})" if clue else ""
+        print(f"  [{i}] {label}{clue_str}  —  {status}")
+
+    print()
+
+    # Check for ambiguous same-type groups
+    type_groups: dict[str, list[int]] = {}
+    for i, d in enumerate(unnamed):
+        label = d.get("label", "")
+        # Get base type (without #N suffix)
+        if " #" in label:
+            base = label.rsplit(" #", 1)[0]
+        else:
+            base = label
+        type_groups.setdefault(base, []).append(i)
+
+    ambiguous_groups = {k: v for k, v in type_groups.items() if len(v) > 1}
+
+    while True:
+        try:
+            choice = input("  Which device to name? (number, q=quit): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice.lower() == "q":
+            break
+
+        try:
+            idx = int(choice) - 1
+            if idx < 0 or idx >= len(unnamed):
+                print("  Invalid number.")
+                continue
+        except ValueError:
+            print("  Enter a number.")
+            continue
+
+        device = unnamed[idx]
+        device_label = device.get("label", "Unknown")
+        device_type = device_label.split(" #")[0] if " #" in device_label else device_label
+        mac = device.get("mac", "unknown")
+
+        # Check if this device is in an ambiguous group
+        if device_type in ambiguous_groups:
+            group = ambiguous_groups[device_type]
+            others = [unnamed[i] for i in group if i != idx]
+            print(f"\n  {len(group)} {device_type} devices found.")
+            print(f"  To identify which one this is:")
+            print(f"  1. Turn off Wi-Fi on the phone you want to name")
+            print(f"  2. Watch which device goes offline\n")
+
+            try:
+                confirm = input(f"  Did '{device_label}' just go offline? (y/n): ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return
+
+            if confirm != "y":
+                print("  Try the other device.\n")
+                continue
+
+        # Ask for name
+        try:
+            name = input(f"  What do you call this device? ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if not name:
+            print("  Name cannot be empty.")
+            continue
+
+        set_known_name(mac, name)
+        print(f"  Saved '{name}' for {mac}\n")
+        break
+
+    print("  Done. Run 'python main.py' to see updated labels.\n")
+
+
 def main():
+    import sys
+
     subnet = "192.168.1.0/24"
+
+    if "--identify" in sys.argv:
+        _run_identify_flow(subnet)
+        return
+
     history = load_history()
     stop_event = threading.Event()
 

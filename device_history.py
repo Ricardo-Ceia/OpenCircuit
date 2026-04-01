@@ -57,13 +57,15 @@ def clean_expired_devices(history: dict, retention_hours: int | None = None) -> 
 def get_history_stats(history: dict) -> dict:
     """Get statistics about the device history."""
     if not history:
-        return {"total": 0, "online": 0, "offline": 0, "verified": 0, "unidentified": 0}
+        return {"total": 0, "online": 0, "offline": 0, "claimed": 0, "verified": 0, "identified": 0, "unidentified": 0}
 
     return {
         "total": len(history),
         "online": sum(1 for d in history.values() if d.get("status") == "online"),
         "offline": sum(1 for d in history.values() if d.get("status") == "offline"),
+        "claimed": sum(1 for d in history.values() if d.get("identity_status") == "claimed"),
         "verified": sum(1 for d in history.values() if d.get("identity_status") == "verified"),
+        "identified": sum(1 for d in history.values() if d.get("identity_status") == "identified"),
         "unidentified": sum(1 for d in history.values() if d.get("identity_status") == "unidentified"),
     }
 

@@ -1,8 +1,11 @@
 """Tests for identity resolution and merge precedence."""
 
 import pytest
-from identity import resolve_label, is_valid_mdns_label, is_valid_rdns_label, _strip_local_tld
+import os
+import json
+from identity import resolve_label, is_valid_mdns_label, is_valid_rdns_label, _strip_local_tld, assign_stable_aliases
 from device_history import merge_scan
+from known_devices import load_known_devices, save_known_devices, get_known_name, set_known_name
 
 
 class TestIsValidMdnsLabel:
@@ -252,3 +255,154 @@ class TestMergePrecedence:
         merge_scan(scan, history, retention_hours=1)
         assert history["192.168.1.20"]["label"] == "Living Room TV"
         assert history["192.168.1.20"]["label_authoritative"] is True
+
+
+class TestKnownNamePriority:
+    """Test that user-assigned names win over all automatic labels."""
+
+    EMPTY = dict(
+        mdns_hostname=None,
+        lockdownd_device_name=None,
+        lockdownd_success=False,
+        rdns_hostname=None,
+        upnp_friendly_name=None,
+        upnp_device_type=None,
+        ios_port_detected=False,
+        known_name=None,
+    )
+
+    def _resolve(self, **overrides):
+        return resolve_label(**{**self.EMPTY, **overrides})
+
+    def test_known_name_wins_over_lockdownd(self):
+        r = self._resolve(
+            known_name="Ricardo's iPhone",
+            lockdownd_device_name="John iPhone",
+            lockdownd_success=True,
+        )
+        assert r["label"] == "Ricardo's iPhone"
+        assert r["label_source"] == "known"
+        assert r["identity_status"] == "claimed"
+        assert r["label_authoritative"] is True
+
+    def test_known_name_wins_over_mdns(self):
+        r = self._resolve(
+            known_name="Living Room TV",
+            mdns_hostname="LGwebOSTV.local",
+        )
+        assert r["label"] == "Living Room TV"
+        assert r["label_source"] == "known"
+
+    def test_known_name_none_falls_through(self):
+        r = self._resolve(known_name=None, mdns_hostname="LGwebOSTV.local")
+        assert r["label_source"] == "mdns"
+
+    def test_known_name_empty_falls_through(self):
+        r = self._resolve(known_name="", mdns_hostname="LGwebOSTV.local")
+        assert r["label_source"] == "mdns"
+
+    def test_known_name_whitespace_falls_through(self):
+        r = self._resolve(known_name="   ", mdns_hostname="LGwebOSTV.local")
+        assert r["label_source"] == "mdns"
+
+
+class TestStableAliases:
+    """Test that same-type devices get stable numbered aliases."""
+
+    def test_two_ios_devices_get_aliases(self):
+        devices = [
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:00:00"},
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:01:00"},
+        ]
+        result = assign_stable_aliases(devices)
+        assert result[0]["label"] == "Apple iOS Device #1"
+        assert result[1]["label"] == "Apple iOS Device #2"
+
+    def test_single_device_no_alias(self):
+        devices = [
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:00:00"},
+        ]
+        result = assign_stable_aliases(devices)
+        assert result[0]["label"] == "Unidentified Apple iOS Device"
+
+    def test_verified_devices_not_aliased(self):
+        devices = [
+            {"label": "LGwebOSTV", "identity_status": "verified",
+             "first_seen": "2026-04-01T10:00:00"},
+            {"label": "LGwebOSTV", "identity_status": "verified",
+             "first_seen": "2026-04-01T10:01:00"},
+        ]
+        result = assign_stable_aliases(devices)
+        # Verified devices keep their names
+        assert result[0]["label"] == "LGwebOSTV"
+        assert result[1]["label"] == "LGwebOSTV"
+
+    def test_mixed_types_aliased_separately(self):
+        devices = [
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:00:00"},
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:01:00"},
+            {"label": "Unidentified device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:02:00"},
+        ]
+        result = assign_stable_aliases(devices)
+        assert result[0]["label"] == "Apple iOS Device #1"
+        assert result[1]["label"] == "Apple iOS Device #2"
+        # Third device is unique type, no alias
+        assert result[2]["label"] == "Unidentified device"
+
+    def test_stable_ordering_by_first_seen(self):
+        devices = [
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:05:00"},
+            {"label": "Unidentified Apple iOS Device", "identity_status": "unidentified",
+             "first_seen": "2026-04-01T10:00:00"},
+        ]
+        result = assign_stable_aliases(devices)
+        # Earlier first_seen = #1
+        assert result[1]["label"] == "Apple iOS Device #1"  # sorted by first_seen
+        assert result[0]["label"] == "Apple iOS Device #2"
+
+
+class TestKnownDevices:
+    """Test known_devices.json persistence."""
+
+    def test_set_and_get(self, tmp_path, monkeypatch):
+        test_file = str(tmp_path / "known.json")
+        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+
+        set_known_name("aa:bb:cc:dd:ee:ff", "Ricardo's iPhone")
+        assert get_known_name("aa:bb:cc:dd:ee:ff") == "Ricardo's iPhone"
+
+    def test_case_insensitive(self, tmp_path, monkeypatch):
+        test_file = str(tmp_path / "known.json")
+        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+
+        set_known_name("AA:BB:CC:DD:EE:FF", "Test")
+        assert get_known_name("aa:bb:cc:dd:ee:ff") == "Test"
+
+    def test_unknown_mac_returns_none(self, tmp_path, monkeypatch):
+        test_file = str(tmp_path / "known.json")
+        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+
+        assert get_known_name("unknown") is None
+        assert get_known_name("") is None
+        assert get_known_name(None) is None
+
+    def test_missing_file_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", str(tmp_path / "nope.json"))
+        assert get_known_name("aa:bb:cc:dd:ee:ff") is None
+
+    def test_persist_across_load(self, tmp_path, monkeypatch):
+        test_file = str(tmp_path / "known.json")
+        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+
+        set_known_name("aa:bb:cc:dd:ee:ff", "Living Room TV")
+        # Simulate reload
+        data = load_known_devices()
+        assert data["aa:bb:cc:dd:ee:ff"]["name"] == "Living Room TV"
+

@@ -124,16 +124,26 @@ def resolve_label(
     upnp_friendly_name: str | None,
     upnp_device_type: str | None,
     ios_port_detected: bool,
+    known_name: str | None = None,
 ) -> dict:
     """
     Determine the authoritative display label for a device.
 
     Returns:
         label: The device name or "Unidentified [type]" / "Unidentified device"
-        label_source: "lockdownd" | "mdns" | "rdns" | "upnp" | "device_type" | "unidentified"
-        label_authoritative: True only for lockdownd or mDNS
-        identity_status: "verified" | "identified" | "unidentified"
+        label_source: "known" | "lockdownd" | "mdns" | "rdns" | "upnp" | "device_type" | "unidentified"
+        label_authoritative: True for known, lockdownd, or mDNS
+        identity_status: "claimed" | "verified" | "identified" | "unidentified"
     """
+
+    # 0. User-assigned name (claimed, highest priority)
+    if known_name and known_name.strip():
+        return {
+            "label": known_name.strip(),
+            "label_source": "known",
+            "label_authoritative": True,
+            "identity_status": "claimed",
+        }
 
     # 1. Lockdownd DeviceName (verified, authoritative)
     if lockdownd_device_name and lockdownd_success:
@@ -192,3 +202,41 @@ def resolve_label(
         "label_authoritative": False,
         "identity_status": "unidentified",
     }
+
+
+def assign_stable_aliases(devices: list[dict]) -> list[dict]:
+    """
+    For same-type unidentified devices, assign stable numbered aliases.
+    e.g. Two "Unidentified Apple iOS Device" -> "Apple iOS Device #1", "#2"
+    Sorts by first_seen for stable ordering.
+
+    Modifies devices in place and returns the list.
+    """
+    # Group by base label (strip "Unidentified " prefix for grouping)
+    groups: dict[str, list[dict]] = {}
+    for d in devices:
+        identity = d.get("identity_status", "unidentified")
+        if identity in ("verified", "claimed"):
+            continue
+        label = d.get("label", "Unidentified device")
+        # Group key: strip "Unidentified " prefix for grouping
+        if label.startswith("Unidentified "):
+            key = label[len("Unidentified "):]
+        else:
+            key = label
+        groups.setdefault(key, []).append(d)
+
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        # Sort by first_seen for stable ordering
+        group.sort(
+            key=lambda d: d.get("first_seen", ""),
+            reverse=False,
+        )
+        for i, d in enumerate(group, 1):
+            d["alias"] = f"{key} #{i}"
+            # Update label to show alias
+            d["label"] = d["alias"]
+
+    return devices
