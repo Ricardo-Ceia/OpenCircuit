@@ -55,7 +55,9 @@ def create_app() -> FastAPI:
         def on_scan_done(devices: list[dict]):
             try:
                 asyncio.run_coroutine_threadsafe(ws_manager.broadcast_update(devices), event_loop)
-            except Exception as exc:
+            except RuntimeError as exc:
+                log.error("Failed to schedule WS broadcast: %s", exc)
+            except OSError as exc:
                 log.error("Failed to schedule WS broadcast: %s", exc)
 
         scanner.register_callback(on_scan_done)

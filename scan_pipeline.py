@@ -32,6 +32,13 @@ def _probe_debug(msg: str, *args):
         log.debug(msg, *args)
 
 
+def _debug_exception(context: str, exc: BaseException):
+    if DEBUG_PROBES:
+        log.debug("%s: %s", context, exc, exc_info=True)
+    else:
+        log.debug("%s: %s", context, exc)
+
+
 def get_default_iface_ip() -> str:
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -39,7 +46,7 @@ def get_default_iface_ip() -> str:
         ip = sock.getsockname()[0]
         sock.close()
         return ip
-    except Exception:
+    except OSError:
         return "0.0.0.0"
 
 
@@ -65,7 +72,8 @@ def ping_sweep_parallel(ips: list[str], workers: int = 32) -> list[str]:
                 if future.result():
                     log.info("UP: %s", ip)
                     live.append(ip)
-            except Exception:
+            except Exception as exc:
+                _debug_exception(f"Ping worker failed for {ip}", exc)
                 continue
     return live
 
@@ -181,7 +189,7 @@ def parse_mdns_packet(data: bytes, source_ip: str) -> list[dict]:
                 results.append({"ip": ip, "hostname": name})
 
         return results
-    except Exception as exc:
+    except (ValueError, struct.error, UnicodeDecodeError, TypeError) as exc:
         log.warning("mDNS parse error from %s: %s", source_ip, exc)
         return []
 
@@ -204,7 +212,8 @@ def bulk_reverse_dns(ips: list[str], workers: int = 16) -> dict[str, str]:
                 hostname = future.result()
                 if hostname:
                     results[ip] = hostname
-            except Exception:
+            except Exception as exc:
+                _debug_exception(f"Reverse DNS worker failed for {ip}", exc)
                 continue
     return results
 
@@ -222,7 +231,7 @@ def probe_tcp_port(ip: str, port: int, timeout: float = 1.0) -> bool:
         result = sock.connect_ex((ip, port))
         sock.close()
         return result == 0
-    except Exception:
+    except OSError:
         return False
 
 
@@ -257,7 +266,7 @@ def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
             "present" if "SERVER" in info else "none",
         )
         return info
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         _probe_debug("SSDP no response from %s: %s", ip, exc)
         return None
 
@@ -299,8 +308,8 @@ def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
         title_match = re.search(r"<title[^>]*>(.*?)</title>", response_str, re.IGNORECASE | re.DOTALL)
         if title_match:
             result["title"] = title_match.group(1).strip()
-    except Exception:
-        pass
+    except (OSError, ValueError) as exc:
+        _debug_exception(f"HTTP probe failed for {ip}:{port}", exc)
 
     return result
 
@@ -308,7 +317,7 @@ def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
 def _resolve_ipv4_addresses(host: str, port: int) -> set[str]:
     try:
         info = socket.getaddrinfo(host, port, family=socket.AF_INET, type=socket.SOCK_STREAM)
-    except Exception:
+    except (socket.gaierror, OSError):
         return set()
 
     resolved: set[str] = set()
@@ -460,10 +469,10 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
                         return result
                 else:
                     _probe_debug("UPnP path %s returned non-XML", path)
-            except Exception as exc:
+            except (OSError, UnicodeDecodeError, ValueError, re.error) as exc:
                 _probe_debug("UPnP path %s failed for %s: %s", path, expected_ip, exc)
                 continue
-    except Exception as exc:
+    except (OSError, ValueError, re.error) as exc:
         _probe_debug("UPnP fetch error for %s: %s", expected_ip, exc)
         if DEBUG_PROBES:
             log.debug("UPnP traceback for %s", expected_ip, exc_info=True)
@@ -566,7 +575,8 @@ def bulk_service_probe(ips: list[str], workers: int = 16) -> dict[str, dict]:
                 result = future.result()
                 if result["services"]:
                     results[ip] = result
-            except Exception:
+            except Exception as exc:
+                _debug_exception(f"Service probe worker failed for {ip}", exc)
                 continue
     return results
 

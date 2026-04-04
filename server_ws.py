@@ -82,7 +82,11 @@ class WebSocketManager:
         for client in tuple(self.connected_clients):
             try:
                 await client.send_text(message)
-            except Exception:
+            except RuntimeError as exc:
+                log.debug("Dropping websocket client after send failure: %s", exc)
+                dead.add(client)
+            except OSError as exc:
+                log.debug("Dropping websocket client after socket failure: %s", exc)
                 dead.add(client)
         self.connected_clients.difference_update(dead)
 
@@ -127,7 +131,9 @@ class WebSocketManager:
                     return
         except WebSocketDisconnect:
             pass
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            log.debug("Websocket runtime error for %r: %s", ws.client, exc)
+        except OSError as exc:
+            log.debug("Websocket socket error for %r: %s", ws.client, exc)
         finally:
             self.connected_clients.discard(ws)

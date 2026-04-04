@@ -138,7 +138,7 @@ def _receive_plist(sock: socket.socket, timeout: float = 2.0) -> bytes | None:
             if not chunk:
                 return None
             header += chunk
-        except (socket.timeout, Exception):
+        except (socket.timeout, OSError):
             return None
     
     length = struct.unpack(">I", header)[0]
@@ -153,7 +153,7 @@ def _receive_plist(sock: socket.socket, timeout: float = 2.0) -> bytes | None:
             if not chunk:
                 return None
             data += chunk
-        except (socket.timeout, Exception):
+        except (socket.timeout, OSError):
             return None
     
     return data
@@ -193,7 +193,7 @@ def _parse_plist_value(xml_bytes: bytes, key: str) -> str | None:
         match = re.search(pattern, xml_str, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).strip()
-    except Exception:
+    except (UnicodeDecodeError, re.error):
         pass
     return None
 
@@ -225,7 +225,7 @@ def _parse_plist_enable_ssl(xml_bytes: bytes) -> bool:
         xml_str = xml_bytes.decode('utf-8', errors='ignore')
         if '<true/>' in xml_str and 'EnableSessionSSL' in xml_str:
             return True
-    except Exception:
+    except UnicodeDecodeError:
         pass
     return False
 
@@ -264,8 +264,8 @@ def query_type(ip: str, timeout: float = 2.0) -> str | None:
         
         if response:
             return _parse_plist_type(response)
-    except Exception:
-        pass
+    except OSError as exc:
+        log.debug(f"Lockdownd query_type failed for {ip}: {exc}")
     
     return None
 
@@ -289,7 +289,7 @@ def get_value(ip: str, key: str, session_id: str | None = None, timeout: float =
         
         if response:
             return _parse_plist_value_field(response)
-    except Exception as e:
+    except OSError as e:
         log.debug(f"Lockdownd get_value({key}) failed for {ip}: {e}")
     
     return None
@@ -377,9 +377,9 @@ def get_ios_device_info(ip: str, timeout: float = 5.0) -> dict | None:
         if result["device_name"]:
             return result
         
-    except Exception:
-        pass
-    
+    except OSError as exc:
+        log.debug(f"Lockdownd handshake failed for {ip}: {exc}")
+
     return None
 
 
