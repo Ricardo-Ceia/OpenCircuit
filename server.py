@@ -34,6 +34,24 @@ AUTH_COOKIE_NAME = "opencircuit_session"
 AUTH_HEADER_NAME = "x-opencircuit-token"
 AUTH_TOKEN = os.environ.get("OPENCIRCUIT_API_TOKEN") or secrets.token_urlsafe(32)
 
+
+def _env_int(name: str, default: int, *, min_value: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < min_value:
+        return default
+    return value
+
+
+WS_MAX_CLIENTS = _env_int("OPENCIRCUIT_WS_MAX_CLIENTS", default=12, min_value=1)
+WS_MAX_MESSAGE_BYTES = _env_int("OPENCIRCUIT_WS_MAX_MESSAGE_BYTES", default=128, min_value=1)
+WS_ALLOWED_CLIENT_MESSAGES = {"ping"}
+
 # ─── WebSocket connection pool ────────────────────────────────────────────
 
 connected_clients: set[WebSocket] = set()
@@ -126,7 +144,7 @@ async def broadcast_update(devices: list[dict]):
         "last_scan": datetime.now().isoformat(),
     })
     dead: set[WebSocket] = set()
-    for ws in connected_clients:
+    for ws in tuple(connected_clients):
         try:
             await ws.send_text(msg)
         except Exception:
@@ -257,6 +275,11 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=1008)
         return
 
+    if len(connected_clients) >= WS_MAX_CLIENTS:
+        log.warning("Rejected websocket connection: max clients reached (%d)", WS_MAX_CLIENTS)
+        await ws.close(code=1013)
+        return
+
     await ws.accept()
     connected_clients.add(ws)
 
@@ -273,8 +296,18 @@ async def websocket_endpoint(ws: WebSocket):
 
     try:
         while True:
-            await ws.receive_text()
+            message = await ws.receive_text()
+            if len(message.encode("utf-8")) > WS_MAX_MESSAGE_BYTES:
+                log.warning("Closing websocket: message too large from %r", ws.client)
+                await ws.close(code=1009)
+                return
+            if message not in WS_ALLOWED_CLIENT_MESSAGES:
+                log.warning("Closing websocket: invalid client message from %r", ws.client)
+                await ws.close(code=1008)
+                return
     except WebSocketDisconnect:
-        connected_clients.discard(ws)
+        pass
     except Exception:
+        pass
+    finally:
         connected_clients.discard(ws)
