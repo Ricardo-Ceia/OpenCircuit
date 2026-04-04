@@ -208,8 +208,11 @@
 			if (ws !== nextWs) {
 				return;
 			}
-			try {
+		try {
 				const payload = JSON.parse(event.data) as DevicesResponse;
+				if (!payload || !Array.isArray(payload.devices) || typeof payload.last_scan !== 'string') {
+					return;
+				}
 				queueStateApply(payload);
 			} catch {
 				// ignore malformed frames

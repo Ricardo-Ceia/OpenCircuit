@@ -44,7 +44,12 @@ def clean_expired_devices(history: dict, retention_hours: int | None = None) -> 
     expired_ips = []
     
     for ip, device in list(history.items()):
-        last_seen = datetime.fromisoformat(device.get("last_seen", ""))
+        raw_last_seen = device.get("last_seen", "")
+        try:
+            last_seen = datetime.fromisoformat(raw_last_seen)
+        except (TypeError, ValueError):
+            continue
+
         if last_seen < cutoff:
             expired_ips.append(ip)
             del history[ip]

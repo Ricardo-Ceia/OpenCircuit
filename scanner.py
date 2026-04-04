@@ -1,36 +1,55 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime
+import logging
 import threading
 import time
-import logging
-from datetime import datetime
 
-from main import (
-    generate_ips,
-    ping_sweep_parallel,
-    mac_discovery,
-    bulk_reverse_dns,
-    mdns_discovery,
-    bulk_service_probe,
-)
-from device_history import load_history, save_history, merge_scan
-from identity import resolve_label
-from known_devices import get_known_name
+from device_history import load_history, merge_scan, save_history
 
 log = logging.getLogger(__name__)
+
+ScanRunner = Callable[[str, int], list[dict]]
+ScanCallback = Callable[[list[dict]], None]
+
+
+def _default_scan_runner(subnet: str, mdns_timeout: int) -> list[dict]:
+    from main import run_single_scan
+
+    return run_single_scan(subnet, mdns_timeout=mdns_timeout)
+
+
+def _ip_sort_key(device: dict) -> list[int]:
+    ip = str(device.get("ip", "0.0.0.0"))
+    try:
+        return [int(part) for part in ip.split(".")]
+    except ValueError:
+        return [0, 0, 0, 0]
+
 
 class BackgroundScanner:
     """Runs network discovery in a background thread."""
 
-    def __init__(self, subnet: str, mdns_timeout: int = 5, arp_interval: int = 30):
+    def __init__(
+        self,
+        subnet: str,
+        mdns_timeout: int = 5,
+        arp_interval: int = 30,
+        scan_runner: ScanRunner | None = None,
+    ):
         self.subnet = subnet
         self.mdns_timeout = mdns_timeout
         self.arp_interval = arp_interval
+        self._scan_runner = scan_runner or _default_scan_runner
+
         self._stop_event = threading.Event()
-        self._thread = None
+        self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self._current_devices = []
-        self._history = load_history()
-        self._last_scan_time = None
-        self._on_scan_complete = []
+        self._current_devices: list[dict] = []
+        self._history: dict = load_history()
+        self._last_scan_time: datetime | None = None
+        self._on_scan_complete: list[ScanCallback] = []
 
     def start(self):
         """Start the background scanner thread."""
@@ -56,116 +75,42 @@ class BackgroundScanner:
         with self._lock:
             return dict(self._history)
 
-    def register_callback(self, fn):
-        """Register a function called after each scan: fn(devices, stats)."""
+    def register_callback(self, fn: ScanCallback):
+        """Register a function called after each scan."""
         self._on_scan_complete.append(fn)
 
     def _run(self):
         """Main scanner loop."""
-        log.info(f"Scanner running on {self.subnet}")
+        log.info("Scanner running on %s", self.subnet)
 
         while not self._stop_event.is_set():
             try:
                 self._do_scan()
-            except Exception as e:
-                log.error(f"Scan error: {e}")
+            except Exception as exc:
+                log.error("Scan error: %s", exc)
 
-            # Wait for next scan, checking stop event periodically
             for _ in range(self.arp_interval):
                 if self._stop_event.is_set():
                     break
                 time.sleep(1)
 
     def _do_scan(self):
-        """Perform a single scan cycle."""
+        """Perform a single scan cycle and update history."""
         log.info("Starting scan cycle...")
+        current_scan = self._scan_runner(self.subnet, min(self.mdns_timeout, 5))
 
-        # Step 1: Ping sweep
-        live_ips = set(ping_sweep_parallel(generate_ips(self.subnet)))
-        log.info(f"Ping: {len(live_ips)} live hosts")
-
-        # Step 2: ARP/MAC lookup
-        mac_map = mac_discovery(list(live_ips))
-
-        # Step 3: Reverse DNS
-        rdns_map = bulk_reverse_dns(list(live_ips))
-
-        # Step 4: mDNS (quick, reduced timeout for background)
-        mdns_map = mdns_discovery(list(live_ips), timeout=min(self.mdns_timeout, 5))
-
-        # Step 5: Service probing
-        service_map = bulk_service_probe(list(live_ips))
-
-        # Build current scan results
-        all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys())
-        current_scan = []
-        for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
-            hostname = mdns_map.get(ip) or rdns_map.get(ip, "unknown")
-            mac_info = mac_map.get(ip, {})
-            vendor = mac_info.get("vendor")
-            mac = mac_info.get("mac", "unknown")
-            service_info = service_map.get(ip, {})
-            services = service_info.get("services", [])
-            fingerprint = service_info.get("fingerprint", {})
-            device_type = service_info.get("device_type")
-
-            # Check for user-assigned name
-            known_name = get_known_name(mac)
-
-            # Strict label resolution — no guessing
-            mdns_hostname = mdns_map.get(ip)
-            rdns_hostname = rdns_map.get(ip)
-            lockdownd_name = fingerprint.get("friendly_name") if fingerprint.get("device_type") == "iPhone" else None
-            lockdownd_ok = any(s.startswith("lockdownd:") for s in services)
-            upnp_name = fingerprint.get("friendly_name") if not lockdownd_ok else None
-            upnp_type = fingerprint.get("device_type") if not lockdownd_ok else None
-            ios_port = any("lockdownd (port" in s for s in services)
-
-            label_info = resolve_label(
-                mdns_hostname=mdns_hostname,
-                lockdownd_device_name=lockdownd_name,
-                lockdownd_success=lockdownd_ok,
-                rdns_hostname=rdns_hostname,
-                upnp_friendly_name=upnp_name,
-                upnp_device_type=upnp_type,
-                ios_port_detected=ios_port,
-                known_name=known_name,
-            )
-
-            sources = []
-            if ip in live_ips: sources.append("ping")
-            if ip in mdns_map: sources.append("mdns")
-            if ip in rdns_map: sources.append("rdns")
-            if ip in mac_map: sources.append("arp")
-            if ip in service_map: sources.append("probe")
-
-            current_scan.append({
-                "ip": ip,
-                "label": label_info["label"],
-                "label_source": label_info["label_source"],
-                "label_authoritative": label_info["label_authoritative"],
-                "identity_status": label_info["identity_status"],
-                "hostname": mdns_map.get(ip) or rdns_map.get(ip, "unknown"),
-                "mac": mac,
-                "vendor": vendor,
-                "fingerprint": fingerprint,
-                "services": services,
-                "source": "+".join(sources)
-            })
-
-        # Merge with history
         with self._lock:
             self._history = merge_scan(current_scan, self._history)
-            self._current_devices = list(self._history.values())
-            self._current_devices.sort(key=lambda d: list(map(int, d["ip"].split("."))))
+            self._current_devices = sorted(self._history.values(), key=_ip_sort_key)
             self._last_scan_time = datetime.now()
             save_history(self._history)
 
-        log.info(f"Scan complete: {len(self._current_devices)} devices in history")
+            current_devices_snapshot = list(self._current_devices)
 
-        # Notify callbacks
-        for fn in self._on_scan_complete:
+        log.info("Scan complete: %d devices in history", len(current_devices_snapshot))
+
+        for callback in self._on_scan_complete:
             try:
-                fn(self._current_devices)
-            except Exception as e:
-                log.error(f"Scan callback error: {e}")
+                callback(current_devices_snapshot)
+            except Exception as exc:
+                log.error("Scan callback error: %s", exc)

@@ -23,10 +23,12 @@ from scanner import BackgroundScanner
 from identity import assign_stable_aliases
 from device_history import get_history_stats
 from known_devices import set_known_name
+from settings import load_server_runtime_settings
 
 log = logging.getLogger(__name__)
 
-SUBNET = os.environ.get("SUBNET", "192.168.1.0/24")
+RUNTIME_SETTINGS = load_server_runtime_settings()
+SUBNET = RUNTIME_SETTINGS.subnet
 scanner = BackgroundScanner(subnet=SUBNET)
 event_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -34,22 +36,8 @@ AUTH_COOKIE_NAME = "opencircuit_session"
 AUTH_HEADER_NAME = "x-opencircuit-token"
 AUTH_TOKEN = os.environ.get("OPENCIRCUIT_API_TOKEN") or secrets.token_urlsafe(32)
 
-
-def _env_int(name: str, default: int, *, min_value: int) -> int:
-    raw = os.environ.get(name)
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    if value < min_value:
-        return default
-    return value
-
-
-WS_MAX_CLIENTS = _env_int("OPENCIRCUIT_WS_MAX_CLIENTS", default=12, min_value=1)
-WS_MAX_MESSAGE_BYTES = _env_int("OPENCIRCUIT_WS_MAX_MESSAGE_BYTES", default=128, min_value=1)
+WS_MAX_CLIENTS = RUNTIME_SETTINGS.ws_max_clients
+WS_MAX_MESSAGE_BYTES = RUNTIME_SETTINGS.ws_max_message_bytes
 WS_ALLOWED_CLIENT_MESSAGES = {"ping"}
 
 # ─── WebSocket connection pool ────────────────────────────────────────────
@@ -58,12 +46,7 @@ connected_clients: set[WebSocket] = set()
 last_broadcast_stamp = ""
 
 
-def _load_configured_origins() -> set[str]:
-    raw = os.environ.get("OPENCIRCUIT_ALLOWED_ORIGINS", "")
-    return {o.strip().rstrip("/") for o in raw.split(",") if o.strip()}
-
-
-CONFIGURED_ALLOWED_ORIGINS = _load_configured_origins()
+CONFIGURED_ALLOWED_ORIGINS = RUNTIME_SETTINGS.configured_allowed_origins
 
 
 def _allowed_origins_for_request(ws: WebSocket) -> set[str]:

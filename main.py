@@ -16,13 +16,11 @@ from device_history import load_history, save_history, merge_scan, format_last_s
 from lockdownd import get_ios_device_info, get_model_display_name
 from identity import resolve_label, assign_stable_aliases
 from known_devices import get_known_name, set_known_name
+from models import DeviceFingerprint, LabelInfo, ScannedDevice
+from settings import load_main_runtime_settings
 
-DEBUG_PROBES = os.environ.get("OPENCIRCUIT_DEBUG_PROBES", "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+RUNTIME_SETTINGS = load_main_runtime_settings()
+DEBUG_PROBES = RUNTIME_SETTINGS.debug_probes
 logging.basicConfig(
     level=logging.DEBUG if DEBUG_PROBES else logging.INFO,
     format="[%(levelname)s] %(message)s",
@@ -781,7 +779,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
 
     all_ips = live_ips | set(mdns_map.keys()) | set(rdns_map.keys()) | set(service_map.keys())
 
-    results = []
+    scanned_devices: list[ScannedDevice] = []
     for ip in sorted(all_ips, key=lambda x: list(map(int, x.split(".")))):
         mac_info = mac_map.get(ip, {})
         vendor = mac_info.get("vendor")
@@ -804,7 +802,7 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         upnp_type = fingerprint.get("device_type") if not lockdownd_ok else None
         ios_port = any("lockdownd (port" in s for s in services)
 
-        label_info = resolve_label(
+        resolved_label = resolve_label(
             mdns_hostname=mdns_hostname,
             lockdownd_device_name=lockdownd_name,
             lockdownd_success=lockdownd_ok,
@@ -815,6 +813,13 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
             known_name=known_name,
         )
 
+        label_info = LabelInfo(
+            label=resolved_label["label"],
+            label_source=resolved_label["label_source"],
+            label_authoritative=resolved_label["label_authoritative"],
+            identity_status=resolved_label["identity_status"],
+        )
+
         sources = []
         if ip in live_ips: sources.append("ping")
         if ip in mdns_map: sources.append("mdns")
@@ -822,22 +827,21 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         if ip in mac_map: sources.append("arp")
         if ip in service_map: sources.append("probe")
 
-        results.append({
-            "ip": ip,
-            "label": label_info["label"],
-            "label_source": label_info["label_source"],
-            "label_authoritative": label_info["label_authoritative"],
-            "identity_status": label_info["identity_status"],
-            "hostname": mdns_map.get(ip) or rdns_map.get(ip, "unknown"),
-            "mac": mac,
-            "vendor": vendor,
-            "device_type": device_type,
-            "fingerprint": fingerprint,
-            "services": services,
-            "source": "+".join(sources)
-        })
+        scanned_devices.append(
+            ScannedDevice(
+                ip=ip,
+                label_info=label_info,
+                hostname=mdns_map.get(ip) or rdns_map.get(ip, "unknown"),
+                mac=mac,
+                vendor=vendor,
+                device_type=device_type,
+                fingerprint=DeviceFingerprint.from_raw(fingerprint),
+                services=list(services),
+                source_channels=sources,
+            )
+        )
 
-    return results
+    return [device.to_record() for device in scanned_devices]
 
 def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Event, mdns_timeout: int = 5):
     """Background thread that runs scans periodically."""
