@@ -9,6 +9,8 @@ import time
 import threading
 import os
 import sys
+import ipaddress
+from urllib.parse import urlsplit
 from mac_vendors import MAC_VENDORS
 from device_history import load_history, save_history, merge_scan, format_last_seen, get_history_as_list, get_history_stats, _get_retention_hours
 from lockdownd import get_ios_device_info, get_model_display_name
@@ -318,7 +320,60 @@ def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
         pass
     return result
 
-def fetch_upnp_description(location_url: str, timeout: float = 2.0) -> dict:
+def _resolve_ipv4_addresses(host: str, port: int) -> set[str]:
+    try:
+        info = socket.getaddrinfo(host, port, family=socket.AF_INET, type=socket.SOCK_STREAM)
+    except Exception:
+        return set()
+    resolved: set[str] = set()
+    for item in info:
+        sockaddr = item[4]
+        if not sockaddr:
+            continue
+        ip = sockaddr[0]
+        if isinstance(ip, str):
+            resolved.add(ip)
+    return resolved
+
+
+def _parse_safe_upnp_location(location_url: str, expected_ip: str) -> tuple[str, int, str] | None:
+    try:
+        parsed = urlsplit(location_url)
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() != "http":
+        return None
+    if parsed.username or parsed.password:
+        return None
+    if not parsed.hostname:
+        return None
+
+    try:
+        expected_ip_obj = ipaddress.ip_address(expected_ip)
+    except ValueError:
+        return None
+    if not isinstance(expected_ip_obj, ipaddress.IPv4Address):
+        return None
+    if not (expected_ip_obj.is_private or expected_ip_obj.is_link_local):
+        return None
+
+    try:
+        port = parsed.port or 80
+    except ValueError:
+        return None
+    if port < 1 or port > 65535:
+        return None
+
+    resolved_ips = _resolve_ipv4_addresses(parsed.hostname, port)
+    if expected_ip not in resolved_ips:
+        return None
+
+    path = parsed.path or "/"
+    return expected_ip, port, path
+
+
+def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float = 2.0) -> dict:
     """
     Fetch and parse UPnP device description XML.
     Returns dict with manufacturer, model, friendlyName, etc.
@@ -351,29 +406,16 @@ def fetch_upnp_description(location_url: str, timeout: float = 2.0) -> dict:
         "/secondscreen/desc.xml",
         "/",
     ]
-    
+
     try:
         log.info(f"DEBUG UPnP: Fetching {location_url}")
-        
-        if not location_url.startswith('http://'):
-            log.info(f"DEBUG UPnP: Not http:// URL, skipping")
+
+        target = _parse_safe_upnp_location(location_url, expected_ip)
+        if not target:
+            log.info(f"DEBUG UPnP: Unsafe LOCATION for {expected_ip}, skipping")
             return result
-        
-        # Parse base URL
-        url_part = location_url[7:]  # Remove http://
-        if '/' in url_part:
-            host_port, existing_path = url_part.split('/', 1)
-            existing_path = '/' + existing_path
-        else:
-            host_port = url_part
-            existing_path = '/'
-        
-        if ':' in host_port:
-            host, port_str = host_port.split(':', 1)
-            port = int(port_str)
-        else:
-            host = host_port
-            port = 80
+
+        host, port, existing_path = target
 
         # Determine which paths to try
         if existing_path != '/':
@@ -543,7 +585,7 @@ def identify_device_services(ip: str) -> dict:
     # Fetch UPnP description if LOCATION header present
     upnp_info = {}
     if ssdp_info and "LOCATION" in ssdp_info:
-        upnp_info = fetch_upnp_description(ssdp_info["LOCATION"], timeout=2.0)
+        upnp_info = fetch_upnp_description(ssdp_info["LOCATION"], ip, timeout=2.0)
         if upnp_info.get("manufacturer"):
             result["services"].append(f"UPnP: {upnp_info['manufacturer']}")
 
