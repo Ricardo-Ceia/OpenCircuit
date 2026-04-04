@@ -35,6 +35,36 @@ connected_clients: set[WebSocket] = set()
 last_broadcast_stamp = ""
 
 
+def _load_configured_origins() -> set[str]:
+    raw = os.environ.get("OPENCIRCUIT_ALLOWED_ORIGINS", "")
+    return {o.strip().rstrip("/") for o in raw.split(",") if o.strip()}
+
+
+CONFIGURED_ALLOWED_ORIGINS = _load_configured_origins()
+
+
+def _allowed_origins_for_request(ws: WebSocket) -> set[str]:
+    allowed = {
+        "http://127.0.0.1:8080",
+        "http://localhost:8080",
+    }
+
+    host = (ws.headers.get("host") or "").strip()
+    if host:
+        allowed.add(f"http://{host}")
+        allowed.add(f"https://{host}")
+
+    allowed.update(CONFIGURED_ALLOWED_ORIGINS)
+    return allowed
+
+
+def _is_allowed_ws_origin(ws: WebSocket) -> bool:
+    origin = (ws.headers.get("origin") or "").strip().rstrip("/")
+    if not origin:
+        return False
+    return origin in _allowed_origins_for_request(ws)
+
+
 async def broadcast_update(devices: list[dict]):
     """Push device updates to all connected WebSocket clients."""
     global last_broadcast_stamp
@@ -172,6 +202,15 @@ async def name_device(mac: str, body: NameRequest):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    if not _is_allowed_ws_origin(ws):
+        log.warning(
+            "Rejected websocket connection from origin=%r host=%r",
+            ws.headers.get("origin"),
+            ws.headers.get("host"),
+        )
+        await ws.close(code=1008)
+        return
+
     await ws.accept()
     connected_clients.add(ws)
 
