@@ -3,7 +3,8 @@
 ## Runtime Overview
 
 - `scan_pipeline.py` contains network discovery and device fingerprinting pipeline.
-- `main.py` is now a thin CLI-oriented entrypoint.
+- `main.py` is now a thin runtime entrypoint.
+- `cli_flow.py` contains interactive console display and identify/naming workflow.
 - `scanner.py` runs periodic background scans and keeps in-memory history.
 - `server.py` is now an app-factory composition layer.
 - `server_auth.py` contains API/WS auth and origin policy.
@@ -46,3 +47,4 @@ CI workflows:
 - Continue decomposing `scan_pipeline.py` into smaller modules (`ping`, `mdns`, `probe`, `identity_assembly`).
 - Introduce app-level integration tests around `create_app()` and route wiring.
 - Add dedicated frontend tests for `live-feed.ts` and `dashboard-state.ts` behavior.
+- Add integration tests for `cli_flow.py` interactive paths using input/output fixtures.
