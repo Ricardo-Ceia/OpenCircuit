@@ -13,7 +13,8 @@ from device_history import (
 )
 from identity import assign_stable_aliases
 from known_devices import set_known_name
-from scan_pipeline import ping_ip, run_single_scan
+from scan.assembly import run_single_scan
+from scan.ping import ping_ip
 
 
 def build_clue(device: dict[str, Any]) -> str:

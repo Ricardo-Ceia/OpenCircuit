@@ -2,7 +2,14 @@
 
 ## Runtime Overview
 
-- `scan_pipeline.py` contains network discovery and device fingerprinting pipeline.
+- Scan pipeline is split by concern under `scan/`:
+  - `scan/ping.py` for host generation and ping sweep
+  - `scan/dns.py` for reverse DNS
+  - `scan/arp.py` for MAC/vendor discovery
+  - `scan/mdns.py` for mDNS query/parse/discovery
+  - `scan/probe.py` for TCP/HTTP/SSDP/UPnP probing and service identification
+  - `scan/assembly.py` for end-to-end scan orchestration and label assembly
+- `scan_pipeline.py` is now a compatibility facade that re-exports canonical scan entrypoints.
 - `main.py` is now a thin runtime entrypoint.
 - `cli_flow.py` contains interactive console display and identify/naming workflow.
 - `scanner.py` runs periodic background scans and keeps in-memory history.
@@ -44,7 +51,6 @@ CI workflows:
 
 ## Next Refactor Targets
 
-- Continue decomposing `scan_pipeline.py` into smaller modules (`ping`, `mdns`, `probe`, `identity_assembly`).
 - Introduce app-level integration tests around `create_app()` and route wiring.
 - Add dedicated frontend tests for `live-feed.ts` and `dashboard-state.ts` behavior.
 - Add integration tests for `cli_flow.py` interactive paths using input/output fixtures.
