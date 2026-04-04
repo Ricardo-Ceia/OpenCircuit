@@ -178,6 +178,34 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OpenCircuit", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
+        "connect-src 'self' ws: wss:"
+    )
+
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    return response
+
 PRIMARY_STATIC_DIR = Path(__file__).parent / "web" / "static-svelte"
 LEGACY_STATIC_DIR = Path(__file__).parent / "web" / "static"
 STATIC_DIR = PRIMARY_STATIC_DIR if PRIMARY_STATIC_DIR.exists() else LEGACY_STATIC_DIR
