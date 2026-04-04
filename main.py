@@ -17,8 +17,22 @@ from lockdownd import get_ios_device_info, get_model_display_name
 from identity import resolve_label, assign_stable_aliases
 from known_devices import get_known_name, set_known_name
 
-logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+DEBUG_PROBES = os.environ.get("OPENCIRCUIT_DEBUG_PROBES", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG_PROBES else logging.INFO,
+    format="[%(levelname)s] %(message)s",
+)
 log = logging.getLogger(__name__)
+
+
+def _probe_debug(msg: str, *args):
+    if DEBUG_PROBES:
+        log.debug(msg, *args)
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX   = platform.system() == "Linux"
@@ -240,10 +254,16 @@ def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
                 key, _, value = line.partition(':')
                 info[key.strip()] = value.strip()
         
-        log.info(f"DEBUG SSDP: Response from {ip}: {info.get('ST', 'unknown')} | LOCATION: {info.get('LOCATION', 'none')} | SERVER: {info.get('SERVER', 'none')}")
+        _probe_debug(
+            "SSDP response from %s st=%s location=%s server=%s",
+            ip,
+            info.get("ST", "unknown"),
+            "present" if "LOCATION" in info else "none",
+            "present" if "SERVER" in info else "none",
+        )
         return info
     except Exception as e:
-        log.info(f"DEBUG SSDP: No response from {ip}: {e}")
+        _probe_debug("SSDP no response from %s: %s", ip, e)
         return None
 
 def probe_http(ip: str, port: int = 80, timeout: float = 1.0) -> str | None:
@@ -408,11 +428,11 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
     ]
 
     try:
-        log.info(f"DEBUG UPnP: Fetching {location_url}")
+        _probe_debug("UPnP location received for %s", expected_ip)
 
         target = _parse_safe_upnp_location(location_url, expected_ip)
         if not target:
-            log.info(f"DEBUG UPnP: Unsafe LOCATION for {expected_ip}, skipping")
+            _probe_debug("UPnP skipped unsafe LOCATION for %s", expected_ip)
             return result
 
         host, port, existing_path = target
@@ -423,7 +443,7 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
         else:
             paths_to_try = upnp_paths
         
-        log.info(f"DEBUG UPnP: Connecting to {host}:{port}, trying paths: {paths_to_try[:3]}...")
+        _probe_debug("UPnP connect %s:%s paths=%s", host, port, paths_to_try[:3])
 
         for path in paths_to_try:
             try:
@@ -454,10 +474,8 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
 
                 # Check if this looks like UPnP XML
                 if '<?xml' in xml or '<root' in xml or '<device' in xml:
-                    log.info(f"DEBUG UPnP: Found valid XML at {path}")
-                    log.info(f"DEBUG UPnP: Response headers: {header_part[:200]}")
-                    log.info(f"DEBUG UPnP: XML body length: {len(xml)}")
-                    log.info(f"DEBUG UPnP: XML preview: {xml[:300]}")
+                    _probe_debug("UPnP XML candidate path=%s host=%s", path, host)
+                    _probe_debug("UPnP XML body length=%d", len(xml))
                     
                     # Parse XML fields
                     import re
@@ -475,24 +493,24 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
                         match = re.search(f'<(?:\w+:)?{tag}>(.*?)</(?:\w+:)?{tag}>', xml, re.IGNORECASE | re.DOTALL)
                         if match:
                             result[key] = match.group(1).strip()
-                            log.info(f"DEBUG UPnP: Found {key}={result[key]}")
+                            _probe_debug("UPnP field found: %s", key)
                         else:
-                            log.info(f"DEBUG UPnP: No match for {tag}")
+                            _probe_debug("UPnP field missing: %s", tag)
                     
                     # If we found at least manufacturer, we're done
                     if result["manufacturer"]:
                         return result
                 else:
-                    log.info(f"DEBUG UPnP: Path {path} returned non-XML: {xml[:100]}")
-                    
+                    _probe_debug("UPnP path %s returned non-XML", path)
+
             except Exception as e:
-                log.info(f"DEBUG UPnP: Path {path} failed: {e}")
+                _probe_debug("UPnP path %s failed for %s: %s", path, expected_ip, e)
                 continue
 
     except Exception as e:
-        log.info(f"DEBUG UPnP: Error fetching {location_url}: {e}")
-        import traceback
-        log.info(f"DEBUG UPnP: Traceback: {traceback.format_exc()}")
+        _probe_debug("UPnP fetch error for %s: %s", expected_ip, e)
+        if DEBUG_PROBES:
+            log.debug("UPnP traceback for %s", expected_ip, exc_info=True)
     
     return result
 
@@ -829,11 +847,11 @@ def _background_scan_loop(subnet: str, history: dict, stop_event: threading.Even
     while not stop_event.is_set():
         try:
             current_scan = run_single_scan(subnet, mdns_timeout=mdns_timeout)
-            log.info(f"DEBUG: current_scan has {len(current_scan)} devices: {[d['ip'] for d in current_scan]}")
-            
+            _probe_debug("Current scan device count=%d", len(current_scan))
+
             # merge_scan modifies history in place
             merge_scan(current_scan, history, retention_hours=retention_hours)
-            log.info(f"DEBUG: history after merge has {len(history)} devices: {list(history.keys())}")
+            _probe_debug("History size after merge=%d", len(history))
             
             save_history(history)
             log.info(f"Scan complete: {len(history)} devices in history")
