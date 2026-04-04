@@ -88,7 +88,7 @@ def create_app() -> FastAPI:
             "img-src 'self' data:; "
             "font-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
             "connect-src 'self' ws: wss:"
         )
 
