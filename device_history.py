@@ -1,6 +1,7 @@
-import json
 import os
 from datetime import datetime, timedelta
+
+from secure_storage import read_json, write_json_atomic
 
 HISTORY_FILE = "devices.json"
 # Default retention: 1 hour (testing). Override via RETENTION_HOURS env var.
@@ -21,19 +22,15 @@ def _get_history_path(filepath=HISTORY_FILE) -> str:
 def load_history(filepath=HISTORY_FILE) -> dict:
     """Load device history from JSON file."""
     abs_path = _get_history_path(filepath)
-    if os.path.exists(abs_path):
-        try:
-            with open(abs_path) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return {}
-    return {}
+    if not os.path.exists(abs_path):
+        return {}
+    data = read_json(abs_path, default={})
+    return data if isinstance(data, dict) else {}
 
 def save_history(history: dict, filepath=HISTORY_FILE):
     """Save device history to JSON file."""
     abs_path = _get_history_path(filepath)
-    with open(abs_path, 'w') as f:
-        json.dump(history, f, indent=2)
+    write_json_atomic(abs_path, history, indent=2)
 
 def clean_expired_devices(history: dict, retention_hours: int | None = None) -> list[str]:
     """

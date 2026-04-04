@@ -1,9 +1,10 @@
 import socket
 import struct
 import os
-import json
 import logging
 from datetime import datetime
+
+from secure_storage import read_json, write_json_atomic
 
 log = logging.getLogger(__name__)
 
@@ -74,7 +75,13 @@ IPHONE_MODELS = {
 
 def _get_pair_records_dir() -> str:
     """Get path to pair records directory."""
-    os.makedirs(PAIR_RECORDS_DIR, exist_ok=True)
+    if os.path.islink(PAIR_RECORDS_DIR):
+        raise OSError(f"Refusing symlink directory: {PAIR_RECORDS_DIR}")
+    os.makedirs(PAIR_RECORDS_DIR, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(PAIR_RECORDS_DIR, 0o700)
+    except OSError:
+        pass
     return PAIR_RECORDS_DIR
 
 
@@ -82,14 +89,16 @@ def _get_system_buid() -> str:
     """Generate or load system BUID."""
     buid_path = os.path.join(_get_pair_records_dir(), "system_buid.json")
     if os.path.exists(buid_path):
-        with open(buid_path) as f:
-            return json.load(f)["SystemBUID"]
-    
+        existing = read_json(buid_path, default={})
+        if isinstance(existing, dict):
+            buid = existing.get("SystemBUID")
+            if isinstance(buid, str) and buid:
+                return buid
+
     # Generate a random BUID
     import uuid
     buid = str(uuid.uuid4()).upper()
-    with open(buid_path, 'w') as f:
-        json.dump({"SystemBUID": buid}, f)
+    write_json_atomic(buid_path, {"SystemBUID": buid}, indent=2)
     return buid
 
 
@@ -98,16 +107,16 @@ def _get_pair_record(ip: str) -> dict | None:
     # Use IP as identifier for simplicity (in production, use WiFi MAC or UDID)
     record_path = os.path.join(_get_pair_records_dir(), f"{ip.replace('.', '_')}.json")
     if os.path.exists(record_path):
-        with open(record_path) as f:
-            return json.load(f)
+        data = read_json(record_path, default=None)
+        if isinstance(data, dict):
+            return data
     return None
 
 
 def _save_pair_record(ip: str, record: dict):
     """Save pair record for a specific device."""
     record_path = os.path.join(_get_pair_records_dir(), f"{ip.replace('.', '_')}.json")
-    with open(record_path, 'w') as f:
-        json.dump(record, f, indent=2)
+    write_json_atomic(record_path, record, indent=2)
 
 
 def _send_plist(sock: socket.socket, plist_xml: bytes):
@@ -261,7 +270,7 @@ def query_type(ip: str, timeout: float = 2.0) -> str | None:
     return None
 
 
-def get_value(ip: str, key: str, session_id: str = None, timeout: float = 2.0) -> str | None:
+def get_value(ip: str, key: str, session_id: str | None = None, timeout: float = 2.0) -> str | None:
     """Get a value from the device."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -293,7 +302,7 @@ def get_ios_device_info(ip: str, timeout: float = 5.0) -> dict | None:
     Returns dict with device_name, model, model_identifier, ios_version, udid
     or None if the device is locked or unreachable.
     """
-    result = {
+    result: dict[str, str | None] = {
         "device_name": None,
         "model": None,
         "model_identifier": None,

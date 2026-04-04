@@ -3,9 +3,10 @@ Known devices: user-assigned friendly names persisted by MAC address.
 These override all automatic label resolution.
 """
 
-import json
 import os
 import logging
+
+from secure_storage import read_json, write_json_atomic
 
 log = logging.getLogger(__name__)
 
@@ -19,22 +20,19 @@ def load_known_devices() -> dict:
     """Load known devices from JSON file. Returns dict keyed by lowercase MAC."""
     if not os.path.exists(KNOWN_DEVICES_FILE):
         return {}
-    try:
-        with open(KNOWN_DEVICES_FILE, "r") as f:
-            data = json.load(f)
-        # Normalize MAC keys to lowercase
-        return {k.lower(): v for k, v in data.items()}
-    except (json.JSONDecodeError, IOError) as e:
-        log.warning(f"Failed to load known devices: {e}")
+    data = read_json(KNOWN_DEVICES_FILE, default={})
+    if not isinstance(data, dict):
+        log.warning("Failed to load known devices: invalid JSON structure")
         return {}
+    # Normalize MAC keys to lowercase
+    return {k.lower(): v for k, v in data.items()}
 
 
 def save_known_devices(data: dict):
     """Save known devices to JSON file."""
     try:
-        with open(KNOWN_DEVICES_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-    except IOError as e:
+        write_json_atomic(KNOWN_DEVICES_FILE, data, indent=2)
+    except OSError as e:
         log.warning(f"Failed to save known devices: {e}")
 
 
