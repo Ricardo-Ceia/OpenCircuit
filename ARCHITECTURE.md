@@ -10,6 +10,9 @@
 - `server_ws.py` contains websocket lifecycle and broadcast manager.
 - `server_routes.py` contains HTTP route handlers.
 - `web/ui` contains the Svelte dashboard, built into `web/static-svelte`.
+- Frontend live sync lifecycle is split into:
+  - `web/ui/src/lib/live-feed.ts` for WS/poll/reconnect/heartbeat transport
+  - `web/ui/src/lib/dashboard-state.ts` for payload-to-state transformations
 
 ## Backend Domain Contracts
 
@@ -40,6 +43,6 @@ CI workflows:
 
 ## Next Refactor Targets
 
-- Move frontend transport/state lifecycle from `+page.svelte` into dedicated store/service files.
 - Continue decomposing `scan_pipeline.py` into smaller modules (`ping`, `mdns`, `probe`, `identity_assembly`).
 - Introduce app-level integration tests around `create_app()` and route wiring.
+- Add dedicated frontend tests for `live-feed.ts` and `dashboard-state.ts` behavior.
