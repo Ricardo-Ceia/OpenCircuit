@@ -5,7 +5,10 @@
 - `scan_pipeline.py` contains network discovery and device fingerprinting pipeline.
 - `main.py` is now a thin CLI-oriented entrypoint.
 - `scanner.py` runs periodic background scans and keeps in-memory history.
-- `server.py` exposes HTTP/WebSocket endpoints and serves static frontend assets.
+- `server.py` is now an app-factory composition layer.
+- `server_auth.py` contains API/WS auth and origin policy.
+- `server_ws.py` contains websocket lifecycle and broadcast manager.
+- `server_routes.py` contains HTTP route handlers.
 - `web/ui` contains the Svelte dashboard, built into `web/static-svelte`.
 
 ## Backend Domain Contracts
@@ -37,6 +40,6 @@ CI workflows:
 
 ## Next Refactor Targets
 
-- Convert `server.py` to app-factory + router modules to reduce global state.
 - Move frontend transport/state lifecycle from `+page.svelte` into dedicated store/service files.
 - Continue decomposing `scan_pipeline.py` into smaller modules (`ping`, `mdns`, `probe`, `identity_assembly`).
+- Introduce app-level integration tests around `create_app()` and route wiring.
