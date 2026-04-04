@@ -32,9 +32,17 @@
 	let connection = $state<'connecting' | 'connected' | 'disconnected'>('connecting');
 	let ws: WebSocket | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let pollTimer: ReturnType<typeof setInterval> | null = null;
+	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 	let lastPayloadStamp = '';
 	let queuedPayload: DevicesResponse | null = null;
 	let queuedFrame = 0;
+	let hydrateInFlight = false;
+	let shouldReconnect = true;
+
+	const FALLBACK_POLL_MS = 10_000;
+	const WS_HEARTBEAT_MS = 20_000;
+	const WS_RECONNECT_MS = 2_200;
 
 	const selectedDevice = $derived(devices.find((d) => d.ip === selectedIp) ?? null);
 	const unnamedCount = $derived(devices.filter((d) => d.identity_status === 'unidentified').length);
@@ -127,24 +135,79 @@
 		});
 	}
 
+	function clearReconnectTimer() {
+		if (reconnectTimer) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
+	}
+
+	function clearHeartbeatTimer() {
+		if (heartbeatTimer) {
+			clearInterval(heartbeatTimer);
+			heartbeatTimer = null;
+		}
+	}
+
+	function startHeartbeat() {
+		clearHeartbeatTimer();
+		heartbeatTimer = setInterval(() => {
+			if (!ws || ws.readyState !== WebSocket.OPEN) {
+				return;
+			}
+			try {
+				ws.send('ping');
+			} catch {
+				// socket lifecycle handlers will recover
+			}
+		}, WS_HEARTBEAT_MS);
+	}
+
+	function startFallbackPolling() {
+		if (pollTimer) {
+			return;
+		}
+		pollTimer = setInterval(() => {
+			void hydrate();
+		}, FALLBACK_POLL_MS);
+	}
+
 	async function hydrate() {
+		if (hydrateInFlight) {
+			return;
+		}
+		hydrateInFlight = true;
 		try {
 			const payload = await fetchDevices();
 			applyState(payload);
 		} catch {
-			connection = 'disconnected';
+			if (connection !== 'connected') {
+				connection = 'disconnected';
+			}
+		} finally {
+			hydrateInFlight = false;
 		}
 	}
 
 	function connectWs() {
 		const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		ws = new WebSocket(`${proto}//${window.location.host}/ws`);
+		const nextWs = new WebSocket(`${proto}//${window.location.host}/ws`);
+		ws = nextWs;
 
-		ws.onopen = () => {
+		nextWs.onopen = () => {
+			if (ws !== nextWs) {
+				return;
+			}
 			connection = 'connected';
+			clearReconnectTimer();
+			startHeartbeat();
+			void hydrate();
 		};
 
-		ws.onmessage = (event) => {
+		nextWs.onmessage = (event) => {
+			if (ws !== nextWs) {
+				return;
+			}
 			try {
 				const payload = JSON.parse(event.data) as DevicesResponse;
 				queueStateApply(payload);
@@ -153,33 +216,59 @@
 			}
 		};
 
-		ws.onclose = () => {
+		nextWs.onclose = () => {
+			if (ws !== nextWs) {
+				return;
+			}
+			ws = null;
+			clearHeartbeatTimer();
 			connection = 'disconnected';
+			void hydrate();
+			if (!shouldReconnect) {
+				return;
+			}
+			clearReconnectTimer();
 			reconnectTimer = setTimeout(() => {
+				if (!shouldReconnect) {
+					return;
+				}
 				connection = 'connecting';
 				connectWs();
-			}, 2200);
+			}, WS_RECONNECT_MS);
 		};
 
-		ws.onerror = () => {
+		nextWs.onerror = () => {
+			if (ws !== nextWs) {
+				return;
+			}
 			connection = 'disconnected';
 		};
 	}
 
 	$effect(() => {
-		hydrate();
+		shouldReconnect = true;
+		void hydrate();
+		startFallbackPolling();
 		connectWs();
 
 		return () => {
-			if (reconnectTimer) {
-				clearTimeout(reconnectTimer);
-				reconnectTimer = null;
+			shouldReconnect = false;
+			clearReconnectTimer();
+			clearHeartbeatTimer();
+			if (pollTimer) {
+				clearInterval(pollTimer);
+				pollTimer = null;
 			}
 			if (queuedFrame) {
 				cancelAnimationFrame(queuedFrame);
 				queuedFrame = 0;
 			}
-			ws?.close();
+			queuedPayload = null;
+			if (ws) {
+				const socket = ws;
+				ws = null;
+				socket.close();
+			}
 		};
 	});
 </script>
