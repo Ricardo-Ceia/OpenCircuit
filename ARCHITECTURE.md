@@ -17,7 +17,6 @@
 - `app/http/server_auth.py` contains API/WS auth and origin policy.
 - `app/http/server_ws.py` contains websocket lifecycle and broadcast manager.
 - `app/http/server_routes.py` contains HTTP route handlers.
-- Root-level modules (e.g. `server.py`, `scanner.py`, `identity.py`) are compatibility aliases for legacy imports.
 - Root-level `main.py` remains the single launch entrypoint and forwards to `app/runtime/main.py`.
 - `web/ui` contains the Svelte dashboard, built into `web/static-svelte`.
 - Frontend live sync lifecycle is split into:

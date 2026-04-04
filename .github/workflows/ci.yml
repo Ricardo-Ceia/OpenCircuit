@@ -28,7 +28,7 @@ jobs:
 
       - name: Compile backend modules
         run: |
-          python -m py_compile device_history.py identity.py known_devices.py lockdownd.py main.py scanner.py secure_storage.py server.py
+          python -m py_compile main.py app/runtime/main.py app/runtime/server.py app/runtime/settings.py app/http/server_auth.py app/http/server_routes.py app/http/server_ws.py app/network/scanner.py app/network/scan_pipeline.py app/network/lockdownd.py app/network/mac_vendors.py app/network/scan/ping.py app/network/scan/dns.py app/network/scan/arp.py app/network/scan/mdns.py app/network/scan/probe.py app/network/scan/assembly.py app/domain/identity.py app/domain/models.py app/storage/device_history.py app/storage/known_devices.py app/storage/secure_storage.py
 
   frontend:
     name: Frontend Checks
