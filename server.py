@@ -8,12 +8,13 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Depends
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,6 +29,10 @@ log = logging.getLogger(__name__)
 SUBNET = os.environ.get("SUBNET", "192.168.1.0/24")
 scanner = BackgroundScanner(subnet=SUBNET)
 event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+AUTH_COOKIE_NAME = "opencircuit_session"
+AUTH_HEADER_NAME = "x-opencircuit-token"
+AUTH_TOKEN = os.environ.get("OPENCIRCUIT_API_TOKEN") or secrets.token_urlsafe(32)
 
 # ─── WebSocket connection pool ────────────────────────────────────────────
 
@@ -65,6 +70,30 @@ def _is_allowed_ws_origin(ws: WebSocket) -> bool:
     return origin in _allowed_origins_for_request(ws)
 
 
+def _token_matches(candidate: str | None) -> bool:
+    if not candidate:
+        return False
+    return secrets.compare_digest(candidate, AUTH_TOKEN)
+
+
+def _request_is_authenticated(request: Request) -> bool:
+    header_token = request.headers.get(AUTH_HEADER_NAME)
+    cookie_token = request.cookies.get(AUTH_COOKIE_NAME)
+    return _token_matches(header_token) or _token_matches(cookie_token)
+
+
+def require_api_auth(request: Request):
+    if _request_is_authenticated(request):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _websocket_is_authenticated(ws: WebSocket) -> bool:
+    query_token = ws.query_params.get("token")
+    cookie_token = ws.cookies.get(AUTH_COOKIE_NAME)
+    return _token_matches(query_token) or _token_matches(cookie_token)
+
+
 async def broadcast_update(devices: list[dict]):
     """Push device updates to all connected WebSocket clients."""
     global last_broadcast_stamp
@@ -96,13 +125,13 @@ async def broadcast_update(devices: list[dict]):
         "stats": stats,
         "last_scan": datetime.now().isoformat(),
     })
-    dead = set()
+    dead: set[WebSocket] = set()
     for ws in connected_clients:
         try:
             await ws.send_text(msg)
         except Exception:
             dead.add(ws)
-    connected_clients -= dead
+    connected_clients.difference_update(dead)
 
 
 def _on_scan_done(devices: list[dict]):
@@ -143,7 +172,16 @@ if (STATIC_DIR / "_app").exists():
 
 @app.get("/")
 async def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    response = FileResponse(STATIC_DIR / "index.html")
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=AUTH_TOKEN,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        path="/",
+    )
+    return response
 
 
 @app.get("/robots.txt")
@@ -154,7 +192,7 @@ async def robots():
     raise HTTPException(status_code=404, detail="Not found")
 
 
-@app.get("/api/devices")
+@app.get("/api/devices", dependencies=[Depends(require_api_auth)])
 async def list_devices():
     devices = [dict(d) for d in scanner.get_devices()]
     assign_stable_aliases(devices)
@@ -166,7 +204,7 @@ async def list_devices():
     }
 
 
-@app.get("/api/devices/{ip}")
+@app.get("/api/devices/{ip}", dependencies=[Depends(require_api_auth)])
 async def get_device(ip: str):
     history = scanner.get_history()
     device = history.get(ip)
@@ -179,7 +217,7 @@ class NameRequest(BaseModel):
     name: str
 
 
-@app.put("/api/devices/{mac}/name")
+@app.put("/api/devices/{mac}/name", dependencies=[Depends(require_api_auth)])
 async def name_device(mac: str, body: NameRequest):
     if not body.name or not body.name.strip():
         raise HTTPException(status_code=400, detail="Name cannot be empty")
@@ -207,6 +245,14 @@ async def websocket_endpoint(ws: WebSocket):
             "Rejected websocket connection from origin=%r host=%r",
             ws.headers.get("origin"),
             ws.headers.get("host"),
+        )
+        await ws.close(code=1008)
+        return
+
+    if not _websocket_is_authenticated(ws):
+        log.warning(
+            "Rejected websocket connection with missing/invalid auth from %r",
+            ws.client,
         )
         await ws.close(code=1008)
         return
