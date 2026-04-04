@@ -1,6 +1,7 @@
 .opencircuit-seen-cache.tsv
 LOCAL_ROUTER_SETUP.md
 devices.json
+known_devices.json
 future_things.md
 debug_log.txt
 
@@ -9,6 +10,7 @@ __pycache__/
 *.py[cod]
 *.pyd
 .pytest_cache/
+tests/__pycache__/
 
 # SvelteKit UI
 web/ui/node_modules/

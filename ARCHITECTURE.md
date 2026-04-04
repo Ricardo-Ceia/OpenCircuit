@@ -2,21 +2,23 @@
 
 ## Runtime Overview
 
-- Scan pipeline is split by concern under `scan/`:
-  - `scan/ping.py` for host generation and ping sweep
-  - `scan/dns.py` for reverse DNS
-  - `scan/arp.py` for MAC/vendor discovery
-  - `scan/mdns.py` for mDNS query/parse/discovery
-  - `scan/probe.py` for TCP/HTTP/SSDP/UPnP probing and service identification
-  - `scan/assembly.py` for end-to-end scan orchestration and label assembly
-- `scan_pipeline.py` is now a compatibility facade that re-exports canonical scan entrypoints.
-- `main.py` is now a thin runtime entrypoint.
-- `cli_flow.py` contains interactive console display and identify/naming workflow.
-- `scanner.py` runs periodic background scans and keeps in-memory history.
-- `server.py` is now an app-factory composition layer.
-- `server_auth.py` contains API/WS auth and origin policy.
-- `server_ws.py` contains websocket lifecycle and broadcast manager.
-- `server_routes.py` contains HTTP route handlers.
+- Application code lives under `app/` and is grouped by concern.
+- `app/runtime/server.py` is the app-factory composition layer for HTTP/WS runtime.
+- `app/runtime/settings.py` centralizes runtime env parsing.
+- `app/cli/flow.py` contains interactive console display and identify/naming workflow.
+- `app/network/scanner.py` runs periodic background scans and keeps in-memory history.
+- Scan pipeline is split by concern under `app/network/scan/`:
+  - `app/network/scan/ping.py` for host generation and ping sweep
+  - `app/network/scan/dns.py` for reverse DNS
+  - `app/network/scan/arp.py` for MAC/vendor discovery
+  - `app/network/scan/mdns.py` for mDNS query/parse/discovery
+  - `app/network/scan/probe.py` for TCP/HTTP/SSDP/UPnP probing and service identification
+  - `app/network/scan/assembly.py` for end-to-end scan orchestration and label assembly
+- `app/http/server_auth.py` contains API/WS auth and origin policy.
+- `app/http/server_ws.py` contains websocket lifecycle and broadcast manager.
+- `app/http/server_routes.py` contains HTTP route handlers.
+- Root-level modules (e.g. `server.py`, `scanner.py`, `identity.py`) are compatibility aliases for legacy imports.
+- Root-level `main.py` remains the single launch entrypoint and forwards to `app/runtime/main.py`.
 - `web/ui` contains the Svelte dashboard, built into `web/static-svelte`.
 - Frontend live sync lifecycle is split into:
   - `web/ui/src/lib/live-feed.ts` for WS/poll/reconnect/heartbeat transport
@@ -24,23 +26,25 @@
 
 ## Backend Domain Contracts
 
-- `models.py` defines typed scan models:
+- `app/domain/models.py` defines typed scan models:
   - `LabelInfo`
   - `DeviceFingerprint`
   - `ScannedDevice`
 - `ScannedDevice.to_record()` is the canonical conversion into legacy dictionary payloads.
-- `settings.py` centralizes environment parsing and server/main runtime settings.
-- `scan_pipeline.run_single_scan(...)` is the canonical scan orchestration API used by CLI and background scanner.
+- `app/domain/identity.py` owns strict label resolution and alias assignment.
+- `app/runtime/settings.py` centralizes environment parsing and runtime settings.
+- `app/network/scan/assembly.py::run_single_scan(...)` is the canonical scan orchestration API.
 
 ## Persistence
 
-- `device_history.py` persists rolling scan state (`devices.json`).
-- `known_devices.py` persists user-assigned names (`known_devices.json`).
-- `secure_storage.py` provides atomic JSON writes and symlink protection.
+- `app/storage/device_history.py` persists rolling scan state (`devices.json`).
+- `app/storage/known_devices.py` persists user-assigned names (`known_devices.json`).
+- `app/storage/secure_storage.py` provides atomic JSON writes and symlink protection.
 
 ## Quality Gates
 
 - Backend tests: `python3 -m pytest -q`
+- Backend tests location: `tests/`
 - Frontend checks: `cd web/ui && npm run check`
 - Frontend build: `cd web/ui && npm run build`
 
@@ -51,6 +55,6 @@ CI workflows:
 
 ## Next Refactor Targets
 
-- Introduce app-level integration tests around `create_app()` and route wiring.
+- Introduce app-level integration tests around `app.runtime.server.create_app()` and route wiring.
 - Add dedicated frontend tests for `live-feed.ts` and `dashboard-state.ts` behavior.
-- Add integration tests for `cli_flow.py` interactive paths using input/output fixtures.
+- Add integration tests for `app/cli/flow.py` interactive paths using input/output fixtures.

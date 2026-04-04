@@ -1,4 +1,4 @@
-from cli_flow import build_clue, is_device_offline
+from app.cli.flow import build_clue, is_device_offline
 
 
 def test_build_clue_prefers_fingerprint_brand_and_model():

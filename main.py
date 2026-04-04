@@ -1,29 +1,25 @@
-import logging
-import threading
-from cli_flow import print_display, run_identify_flow
+"""Application entrypoint kept at repository root."""
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s] %(message)s",
-)
-log = logging.getLogger(__name__)
+import importlib.util
+import pathlib
+import sys
 
 
-def main():
-    import uvicorn
-    import webbrowser
+def _load_runtime_main():
+    runtime_main = pathlib.Path(__file__).parent / "app" / "runtime" / "main.py"
+    spec = importlib.util.spec_from_file_location("app.runtime.main", runtime_main)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Failed to load app.runtime.main")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["app.runtime.main"] = module
+    spec.loader.exec_module(module)
+    return module
 
-    host = "127.0.0.1"
-    port = 8080
-    url = f"http://{host}:{port}"
 
-    print(f"\n  OpenCircuit starting at {url}")
-    print(f"  Opening browser...\n")
+def main() -> None:
+    module = _load_runtime_main()
+    module.main()
 
-    # Open browser after a short delay
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-
-    uvicorn.run("server:app", host=host, port=port, log_level="info")
 
 if __name__ == "__main__":
     main()

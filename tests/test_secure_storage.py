@@ -1,7 +1,7 @@
 import json
 import os
 
-from secure_storage import read_json, write_json_atomic
+from app.storage.secure_storage import read_json, write_json_atomic
 
 
 def test_write_and_read_json_roundtrip(tmp_path):

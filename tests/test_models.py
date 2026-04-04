@@ -1,4 +1,4 @@
-from models import DeviceFingerprint, LabelInfo, ScannedDevice
+from app.domain.models import DeviceFingerprint, LabelInfo, ScannedDevice
 
 
 def test_device_fingerprint_from_raw_preserves_unknown_fields():

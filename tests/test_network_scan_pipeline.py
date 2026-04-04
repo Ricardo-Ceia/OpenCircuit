@@ -1,4 +1,5 @@
-from scan_pipeline import fetch_http_full, parse_mdns_packet
+from app.network.scan.mdns import parse_mdns_packet
+from app.network.scan.probe import fetch_http_full
 
 
 def test_parse_mdns_packet_handles_invalid_input_without_crash():

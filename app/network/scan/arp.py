@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 import platform
 import re
 import subprocess
 
-from mac_vendors import MAC_VENDORS
+from app.network.mac_vendors import MAC_VENDORS
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"

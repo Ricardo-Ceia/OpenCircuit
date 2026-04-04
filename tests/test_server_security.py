@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.websockets import WebSocketDisconnect
 
-import server
+import app.runtime.server as server
 
 
 @dataclass
@@ -63,14 +63,14 @@ def test_request_authentication_accepts_header_or_cookie():
     header_only = DummyRequest(headers={server.AUTH_HEADER_NAME: server.AUTH_TOKEN})
     cookie_only = DummyRequest(cookies={server.AUTH_COOKIE_NAME: server.AUTH_TOKEN})
 
-    assert server._request_is_authenticated(header_only) is True
-    assert server._request_is_authenticated(cookie_only) is True
+    assert server._request_is_authenticated(header_only) is True  # type: ignore[arg-type]
+    assert server._request_is_authenticated(cookie_only) is True  # type: ignore[arg-type]
 
 
 def test_request_authentication_rejects_missing_token():
     request = DummyRequest()
     with pytest.raises(HTTPException) as exc:
-        server.require_api_auth(request)
+        server.require_api_auth(request)  # type: ignore[arg-type]
     assert exc.value.status_code == 401
 
 

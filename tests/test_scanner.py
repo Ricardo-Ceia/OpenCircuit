@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scanner import BackgroundScanner
+from app.network.scanner import BackgroundScanner
 
 
 def _scan_result(ip: str) -> dict:
@@ -20,7 +20,7 @@ def _scan_result(ip: str) -> dict:
 
 
 def test_background_scanner_uses_injected_scan_runner(monkeypatch):
-    monkeypatch.setattr("scanner.load_history", lambda: {})
+    monkeypatch.setattr("app.network.scanner.load_history", lambda: {})
 
     persisted_history: dict[str, dict] = {}
 
@@ -28,7 +28,7 @@ def test_background_scanner_uses_injected_scan_runner(monkeypatch):
         persisted_history.clear()
         persisted_history.update(history)
 
-    monkeypatch.setattr("scanner.save_history", fake_save_history)
+    monkeypatch.setattr("app.network.scanner.save_history", fake_save_history)
 
     captured_merge_inputs = []
 
@@ -37,7 +37,7 @@ def test_background_scanner_uses_injected_scan_runner(monkeypatch):
         history["192.168.1.10"] = _scan_result("192.168.1.10")
         return history
 
-    monkeypatch.setattr("scanner.merge_scan", fake_merge_scan)
+    monkeypatch.setattr("app.network.scanner.merge_scan", fake_merge_scan)
 
     calls = []
 
@@ -60,9 +60,9 @@ def test_background_scanner_uses_injected_scan_runner(monkeypatch):
 
 
 def test_background_scanner_notifies_callbacks_with_snapshot(monkeypatch):
-    monkeypatch.setattr("scanner.load_history", lambda: {})
-    monkeypatch.setattr("scanner.save_history", lambda history: None)
-    monkeypatch.setattr("scanner.merge_scan", lambda current_scan, history: {"192.168.1.20": _scan_result("192.168.1.20")})
+    monkeypatch.setattr("app.network.scanner.load_history", lambda: {})
+    monkeypatch.setattr("app.network.scanner.save_history", lambda history: None)
+    monkeypatch.setattr("app.network.scanner.merge_scan", lambda current_scan, history: {"192.168.1.20": _scan_result("192.168.1.20")})
 
     scanner = BackgroundScanner(
         subnet="192.168.1.0/24",

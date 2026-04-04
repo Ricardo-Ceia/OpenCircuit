@@ -3,9 +3,9 @@
 import pytest
 import os
 import json
-from identity import resolve_label, is_valid_mdns_label, is_valid_rdns_label, _strip_local_tld, assign_stable_aliases
-from device_history import merge_scan
-from known_devices import load_known_devices, save_known_devices, get_known_name, set_known_name
+from app.domain.identity import resolve_label, is_valid_mdns_label, is_valid_rdns_label, _strip_local_tld, assign_stable_aliases
+from app.storage.device_history import merge_scan
+from app.storage.known_devices import load_known_devices, save_known_devices, get_known_name, set_known_name
 
 
 class TestIsValidMdnsLabel:
@@ -373,36 +373,35 @@ class TestKnownDevices:
 
     def test_set_and_get(self, tmp_path, monkeypatch):
         test_file = str(tmp_path / "known.json")
-        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+        monkeypatch.setattr("app.storage.known_devices.KNOWN_DEVICES_FILE", test_file)
 
         set_known_name("aa:bb:cc:dd:ee:ff", "Ricardo's iPhone")
         assert get_known_name("aa:bb:cc:dd:ee:ff") == "Ricardo's iPhone"
 
     def test_case_insensitive(self, tmp_path, monkeypatch):
         test_file = str(tmp_path / "known.json")
-        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+        monkeypatch.setattr("app.storage.known_devices.KNOWN_DEVICES_FILE", test_file)
 
         set_known_name("AA:BB:CC:DD:EE:FF", "Test")
         assert get_known_name("aa:bb:cc:dd:ee:ff") == "Test"
 
     def test_unknown_mac_returns_none(self, tmp_path, monkeypatch):
         test_file = str(tmp_path / "known.json")
-        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+        monkeypatch.setattr("app.storage.known_devices.KNOWN_DEVICES_FILE", test_file)
 
         assert get_known_name("unknown") is None
         assert get_known_name("") is None
         assert get_known_name(None) is None
 
     def test_missing_file_returns_none(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", str(tmp_path / "nope.json"))
+        monkeypatch.setattr("app.storage.known_devices.KNOWN_DEVICES_FILE", str(tmp_path / "nope.json"))
         assert get_known_name("aa:bb:cc:dd:ee:ff") is None
 
     def test_persist_across_load(self, tmp_path, monkeypatch):
         test_file = str(tmp_path / "known.json")
-        monkeypatch.setattr("known_devices.KNOWN_DEVICES_FILE", test_file)
+        monkeypatch.setattr("app.storage.known_devices.KNOWN_DEVICES_FILE", test_file)
 
         set_known_name("aa:bb:cc:dd:ee:ff", "Living Room TV")
         # Simulate reload
         data = load_known_devices()
         assert data["aa:bb:cc:dd:ee:ff"]["name"] == "Living Room TV"
-

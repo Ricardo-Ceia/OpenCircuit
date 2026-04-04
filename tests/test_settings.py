@@ -1,6 +1,6 @@
 import os
 
-from settings import env_bool, env_int, env_csv_set
+from app.runtime.settings import env_bool, env_int, env_csv_set
 
 
 def test_env_bool_uses_default_when_missing(monkeypatch):

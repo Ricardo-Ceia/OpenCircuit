@@ -7,7 +7,7 @@ import re
 import socket
 from urllib.parse import urlsplit
 
-from lockdownd import get_ios_device_info
+from app.network.lockdownd import get_ios_device_info
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ def probe_tcp_port(ip: str, port: int, timeout: float = 1.0) -> bool:
 
 
 def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
+    sock: socket.socket | None = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.settimeout(timeout)
@@ -47,6 +48,7 @@ def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
         sock.sendto(query, (ip, 1900))
         data, _ = sock.recvfrom(4096)
         sock.close()
+        sock = None
 
         response = data.decode("utf-8", errors="ignore")
         info: dict[str, str] = {}
@@ -66,10 +68,14 @@ def probe_ssdp(ip: str, timeout: float = 1.0) -> dict | None:
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         _probe_debug("SSDP no response from %s: %s", ip, exc)
         return None
+    finally:
+        if sock is not None:
+            sock.close()
 
 
 def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
     result = {"server": None, "title": None, "headers": {}, "body_snippet": ""}
+    sock: socket.socket | None = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
@@ -86,6 +92,7 @@ def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
             if b"\r\n\r\n" in response and len(response) > 1000:
                 break
         sock.close()
+        sock = None
 
         response_str = response.decode("utf-8", errors="ignore")
         if "\r\n\r\n" in response_str:
@@ -107,6 +114,9 @@ def fetch_http_full(ip: str, port: int = 80, timeout: float = 2.0) -> dict:
             result["title"] = title_match.group(1).strip()
     except (OSError, ValueError) as exc:
         _probe_debug("HTTP probe failed for %s:%s: %s", ip, port, exc)
+    finally:
+        if sock is not None:
+            sock.close()
 
     return result
 
@@ -208,6 +218,7 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
         _probe_debug("UPnP connect %s:%s paths=%s", host, port, paths_to_try[:3])
 
         for path in paths_to_try:
+            sock: socket.socket | None = None
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(timeout)
@@ -229,6 +240,7 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
                     if b"\r\n\r\n" in response and len(response) > 500:
                         break
                 sock.close()
+                sock = None
 
                 response_str = response.decode("utf-8", errors="ignore")
                 if "\r\n\r\n" in response_str:
@@ -269,6 +281,9 @@ def fetch_upnp_description(location_url: str, expected_ip: str, timeout: float =
             except (OSError, UnicodeDecodeError, ValueError, re.error) as exc:
                 _probe_debug("UPnP path %s failed for %s: %s", path, expected_ip, exc)
                 continue
+            finally:
+                if sock is not None:
+                    sock.close()
     except (OSError, ValueError, re.error) as exc:
         _probe_debug("UPnP fetch error for %s: %s", expected_ip, exc)
 

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import logging
 
-from identity import resolve_label
-from known_devices import get_known_name
-from models import DeviceFingerprint, LabelInfo, ScannedDevice
-from scan.arp import mac_discovery
-from scan.dns import bulk_reverse_dns
-from scan.mdns import mdns_discovery
-from scan.ping import generate_ips, ping_sweep_parallel
-from scan.probe import bulk_service_probe
+from app.domain.identity import resolve_label
+from app.domain.models import DeviceFingerprint, LabelInfo, ScannedDevice
+from app.network.scan.arp import mac_discovery
+from app.network.scan.dns import bulk_reverse_dns
+from app.network.scan.mdns import mdns_discovery
+from app.network.scan.ping import generate_ips, ping_sweep_parallel
+from app.network.scan.probe import bulk_service_probe
+from app.storage.known_devices import get_known_name
 
 log = logging.getLogger(__name__)
 

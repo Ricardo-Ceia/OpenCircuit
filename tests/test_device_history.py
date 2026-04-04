@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from device_history import clean_expired_devices, merge_scan
+from app.storage.device_history import clean_expired_devices, merge_scan
 
 
 def _iso_hours_ago(hours: int) -> str:

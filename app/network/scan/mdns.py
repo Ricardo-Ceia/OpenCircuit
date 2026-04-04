@@ -5,7 +5,7 @@ import platform
 import socket
 import struct
 
-from scan.ping import get_default_iface_ip
+from app.network.scan.ping import get_default_iface_ip
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +153,7 @@ def mdns_discovery(live_ips: list[str], timeout: int = 10) -> dict[str, str]:
     local_ip = get_default_iface_ip()
     log.info("Local IP: %s  |  Platform: %s", local_ip, platform.system())
 
+    sock: socket.socket | None = None
     try:
         sock = make_mdns_socket(local_ip)
     except PermissionError:
@@ -191,5 +192,6 @@ def mdns_discovery(live_ips: list[str], timeout: int = 10) -> dict[str, str]:
             print(f"\r  Listening... {timeout - elapsed}s remaining   ", end="", flush=True)
 
     print()
-    sock.close()
+    if sock is not None:
+        sock.close()
     return ip_to_hostname
