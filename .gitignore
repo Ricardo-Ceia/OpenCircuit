@@ -2,10 +2,14 @@
 LOCAL_ROUTER_SETUP.md
 devices.json
 future_things.md
-__pycache__
 debug_log.txt
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
 
 # SvelteKit UI
 web/ui/node_modules/
 web/ui/.svelte-kit/
-
