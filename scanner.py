@@ -15,7 +15,7 @@ ScanCallback = Callable[[list[dict]], None]
 
 
 def _default_scan_runner(subnet: str, mdns_timeout: int) -> list[dict]:
-    from main import run_single_scan
+    from scan_pipeline import run_single_scan
 
     return run_single_scan(subnet, mdns_timeout=mdns_timeout)
 

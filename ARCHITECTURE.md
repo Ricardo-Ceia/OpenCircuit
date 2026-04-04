@@ -2,7 +2,8 @@
 
 ## Runtime Overview
 
-- `main.py` contains network discovery and CLI-oriented flow.
+- `scan_pipeline.py` contains network discovery and device fingerprinting pipeline.
+- `main.py` is now a thin CLI-oriented entrypoint.
 - `scanner.py` runs periodic background scans and keeps in-memory history.
 - `server.py` exposes HTTP/WebSocket endpoints and serves static frontend assets.
 - `web/ui` contains the Svelte dashboard, built into `web/static-svelte`.
@@ -15,6 +16,7 @@
   - `ScannedDevice`
 - `ScannedDevice.to_record()` is the canonical conversion into legacy dictionary payloads.
 - `settings.py` centralizes environment parsing and server/main runtime settings.
+- `scan_pipeline.run_single_scan(...)` is the canonical scan orchestration API used by CLI and background scanner.
 
 ## Persistence
 
@@ -35,6 +37,6 @@ CI workflows:
 
 ## Next Refactor Targets
 
-- Split discovery/probing sections from `main.py` into focused modules.
 - Convert `server.py` to app-factory + router modules to reduce global state.
 - Move frontend transport/state lifecycle from `+page.svelte` into dedicated store/service files.
+- Continue decomposing `scan_pipeline.py` into smaller modules (`ping`, `mdns`, `probe`, `identity_assembly`).
