@@ -18,3 +18,6 @@ tests/__pycache__/
 # SvelteKit UI
 web/ui/node_modules/
 web/ui/.svelte-kit/
+
+#remove the todo file
+todo.md
