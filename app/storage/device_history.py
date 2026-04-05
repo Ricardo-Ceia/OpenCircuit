@@ -181,5 +181,12 @@ def format_last_seen(iso_timestamp: str) -> str:
 def get_history_as_list(history: dict) -> list[dict]:
     """Convert history dict to sorted list for display."""
     devices = list(history.values())
-    devices.sort(key=lambda d: list(map(int, d["ip"].split("."))))
+    def _ip_sort_key(device: dict) -> list[int]:
+        ip = str(device.get("ip", "0.0.0.0"))
+        try:
+            return [int(part) for part in ip.split(".")]
+        except ValueError:
+            return [0, 0, 0, 0]
+
+    devices.sort(key=_ip_sort_key)
     return devices

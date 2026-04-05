@@ -1,6 +1,9 @@
 import logging
 import threading
-from app.cli.flow import print_display, run_identify_flow
+
+import uvicorn
+
+from app.runtime.server import app
 
 logging.basicConfig(
     level=logging.INFO,
@@ -9,10 +12,13 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def main():
-    import uvicorn
+def open_browser_after_startup(url: str, delay_seconds: float = 1.5):
     import webbrowser
-    from app.runtime.server import app
+
+    threading.Timer(delay_seconds, lambda: webbrowser.open(url)).start()
+
+
+def main() -> None:
 
     host = "127.0.0.1"
     port = 8080
@@ -21,7 +27,6 @@ def main():
     print(f"\n  OpenCircuit starting at {url}")
     print(f"  Opening browser...\n")
 
-    # Open browser after a short delay
-    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    open_browser_after_startup(url)
 
     uvicorn.run(app, host=host, port=port, log_level="info")

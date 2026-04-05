@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -16,6 +17,17 @@ from app.http.server_auth import AUTH_COOKIE_NAME
 
 class NameRequest(BaseModel):
     name: str
+
+
+def _create_devices_response(scanner: BackgroundScanner) -> dict[str, Any]:
+    devices = [dict(device) for device in scanner.get_devices()]
+    assign_stable_aliases(devices)
+    stats = get_history_stats(scanner.get_history())
+    return {
+        "devices": devices,
+        "stats": stats,
+        "last_scan": datetime.now().isoformat(),
+    }
 
 
 def create_routes(*, scanner: BackgroundScanner, require_api_auth, static_dir: Path, auth_token: str) -> APIRouter:
@@ -43,14 +55,7 @@ def create_routes(*, scanner: BackgroundScanner, require_api_auth, static_dir: P
 
     @router.get("/api/devices", dependencies=[Depends(require_api_auth)])
     async def list_devices():
-        devices = [dict(d) for d in scanner.get_devices()]
-        assign_stable_aliases(devices)
-        stats = get_history_stats(scanner.get_history())
-        return {
-            "devices": devices,
-            "stats": stats,
-            "last_scan": datetime.now().isoformat(),
-        }
+        return _create_devices_response(scanner)
 
     @router.get("/api/devices/{ip}", dependencies=[Depends(require_api_auth)])
     async def get_device(ip: str):

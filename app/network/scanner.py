@@ -51,8 +51,14 @@ class BackgroundScanner:
         self._last_scan_time: datetime | None = None
         self._on_scan_complete: list[ScanCallback] = []
 
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
     def start(self):
         """Start the background scanner thread."""
+        if self.is_running():
+            log.debug("Background scanner start ignored: already running")
+            return
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -63,6 +69,7 @@ class BackgroundScanner:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=5)
+            self._thread = None
         log.info("Background scanner stopped")
 
     def get_devices(self) -> list[dict]:
@@ -86,7 +93,7 @@ class BackgroundScanner:
         while not self._stop_event.is_set():
             try:
                 self._do_scan()
-            except Exception as exc:
+            except (OSError, RuntimeError, ValueError) as exc:
                 log.error("Scan error: %s", exc)
 
             for _ in range(self.arp_interval):

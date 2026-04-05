@@ -27,6 +27,9 @@ export type Device = {
 	status?: DeviceStatus;
 	first_seen?: string;
 	last_seen?: string;
+	location_hint?: string;
+	location_confidence?: number;
+	estimated_via?: string;
 };
 
 export type DeviceStats = {

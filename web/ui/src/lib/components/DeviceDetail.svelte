@@ -117,6 +117,14 @@
 				<div class="val">{field(device.vendor)}</div>
 			</div>
 			<div class="row">
+				<div class="key">Location</div>
+				<div class="val">{field(device.location_hint, 'Unknown')}</div>
+			</div>
+			<div class="row">
+				<div class="key">Location confidence</div>
+				<div class="val">{device.location_confidence !== undefined ? `${Math.round(device.location_confidence * 100)}%` : '—'}</div>
+			</div>
+			<div class="row">
 				<div class="key">Manufacturer</div>
 				<div class="val">{field(device.fingerprint?.manufacturer)}</div>
 			</div>
