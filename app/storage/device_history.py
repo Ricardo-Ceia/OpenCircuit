@@ -105,6 +105,11 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | N
             history[ip]["sources"] = device.get("source", history[ip].get("sources", []))
             history[ip]["services"] = device.get("services", history[ip].get("services", []))
             history[ip]["status"] = "online"
+            history[ip]["location_hint"] = device.get("location_hint")
+            history[ip]["location_confidence"] = device.get("location_confidence")
+            history[ip]["distance_meters"] = device.get("distance_meters")
+            history[ip]["rssi_dbm"] = device.get("rssi_dbm")
+            history[ip]["estimated_via"] = device.get("estimated_via")
 
             # Label precedence: authoritative never overwritten by non-authoritative
             incoming_auth = device.get("label_authoritative", False)
@@ -140,6 +145,11 @@ def merge_scan(current_scan: list[dict], history: dict, retention_hours: int | N
                 "sources": device.get("source", []),
                 "services": device.get("services", []),
                 "fingerprint": device.get("fingerprint", {}),
+                "location_hint": device.get("location_hint"),
+                "location_confidence": device.get("location_confidence"),
+                "distance_meters": device.get("distance_meters"),
+                "rssi_dbm": device.get("rssi_dbm"),
+                "estimated_via": device.get("estimated_via"),
                 "first_seen": now,
                 "last_seen": now,
                 "status": "online"

@@ -18,6 +18,8 @@ class LocationEstimate:
     room: str
     confidence: float
     estimated_via: str
+    distance_meters: float
+    rssi_dbm: int
     updated_at: datetime
 
 

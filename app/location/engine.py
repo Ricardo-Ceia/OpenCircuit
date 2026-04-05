@@ -5,6 +5,12 @@ from statistics import median
 from typing import Any
 
 
+PSEUDO_TX_POWER_DBM = -59.0
+PSEUDO_PATH_LOSS_EXPONENT = 2.0
+MIN_PSEUDO_DISTANCE_METERS = 0.1
+MAX_PSEUDO_DISTANCE_METERS = 120.0
+
+
 def normalize_device_key(device_key: str) -> str:
     return device_key.strip().lower()
 
@@ -15,17 +21,33 @@ def aggregate_calibration_samples(samples: list[dict[str, Any]]) -> list[dict[st
     for sample in samples:
         if not isinstance(sample, dict):
             continue
-        room = sample.get("room")
-        sensor_position = sample.get("sensor_position")
-        device_key = sample.get("device_key")
+        room_value = sample.get("room")
+        sensor_position_value = sample.get("sensor_position")
+        device_key_value = sample.get("device_key")
         rssi_dbm = sample.get("rssi_dbm")
 
-        if not all(isinstance(value, str) and value.strip() for value in (room, sensor_position, device_key)):
+        if not isinstance(room_value, str):
             continue
+        room = room_value.strip()
+        if not room:
+            continue
+
+        if not isinstance(sensor_position_value, str):
+            continue
+        sensor_position = sensor_position_value.strip()
+        if not sensor_position:
+            continue
+
+        if not isinstance(device_key_value, str):
+            continue
+        device_key = device_key_value.strip()
+        if not device_key:
+            continue
+
         if not isinstance(rssi_dbm, int):
             continue
 
-        key = (room.strip(), sensor_position.strip(), normalize_device_key(device_key))
+        key = (room, sensor_position, normalize_device_key(device_key))
         buckets[key].append(rssi_dbm)
 
     fingerprints: list[dict[str, Any]] = []
@@ -46,6 +68,13 @@ def aggregate_calibration_samples(samples: list[dict[str, Any]]) -> list[dict[st
 
 def _distance(sample_rssi: int, reference_rssi: float) -> float:
     return abs(float(sample_rssi) - reference_rssi)
+
+
+def rssi_to_pseudo_meters(rssi_dbm: int) -> float:
+    exponent = (PSEUDO_TX_POWER_DBM - float(rssi_dbm)) / (10.0 * PSEUDO_PATH_LOSS_EXPONENT)
+    distance = 10.0**exponent
+    distance = max(MIN_PSEUDO_DISTANCE_METERS, min(MAX_PSEUDO_DISTANCE_METERS, distance))
+    return round(distance, 2)
 
 
 def estimate_room(

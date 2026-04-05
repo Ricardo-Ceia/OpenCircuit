@@ -4,9 +4,12 @@
 	type Props = {
 		stats: DeviceStats;
 		connection: 'connecting' | 'connected' | 'disconnected';
+		onEstimateOnline: () => void;
+		isEstimatingOnline: boolean;
+		estimateNotice: { kind: 'ok' | 'error'; message: string } | null;
 	};
 
-	let { stats, connection }: Props = $props();
+	let { stats, connection, onEstimateOnline, isEstimatingOnline, estimateNotice }: Props = $props();
 </script>
 
 <header class="topbar panel panel-glow">
@@ -40,12 +43,21 @@
 			<span class="name">unnamed</span>
 		</div>
 	</div>
+
+	<div class="actions">
+		<button type="button" class="estimate-btn" onclick={onEstimateOnline} disabled={isEstimatingOnline}>
+			{isEstimatingOnline ? 'Estimating…' : 'Estimate Online'}
+		</button>
+		{#if estimateNotice}
+			<div class={`estimate-note ${estimateNotice.kind}`}>{estimateNotice.message}</div>
+		{/if}
+	</div>
 </header>
 
 <style>
 	.topbar {
 		display: grid;
-		grid-template-columns: 1fr auto auto;
+		grid-template-columns: 1fr auto auto auto;
 		align-items: center;
 		gap: 1.5rem;
 		padding: 1rem 1.25rem;
@@ -145,6 +157,52 @@
 		color: var(--tone-warning);
 	}
 
+	.actions {
+		display: grid;
+		justify-items: end;
+		gap: 0.35rem;
+	}
+
+	.estimate-btn {
+		font: inherit;
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+		padding: 0.55rem 0.8rem;
+		border: 1px solid color-mix(in oklab, var(--tone-cyan) 38%, var(--edge-strong));
+		border-radius: 0.35rem;
+		color: var(--tone-cyan);
+		background: color-mix(in oklab, var(--tone-cyan) 10%, var(--panel-alt));
+		cursor: pointer;
+		transition: transform 140ms ease, border-color 140ms ease;
+	}
+
+	.estimate-btn:hover:not(:disabled) {
+		transform: translateY(-1px);
+		border-color: color-mix(in oklab, var(--tone-cyan) 58%, white 8%);
+	}
+
+	.estimate-btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.estimate-note {
+		font-size: 0.56rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		text-align: right;
+		max-inline-size: 18rem;
+	}
+
+	.estimate-note.ok {
+		color: var(--tone-online-soft);
+	}
+
+	.estimate-note.error {
+		color: var(--tone-offline);
+	}
+
 	@media (max-width: 900px) {
 		.topbar {
 			grid-template-columns: 1fr;
@@ -154,6 +212,14 @@
 		.metrics {
 			justify-content: flex-start;
 			flex-wrap: wrap;
+		}
+
+		.actions {
+			justify-items: start;
+		}
+
+		.estimate-note {
+			text-align: left;
 		}
 	}
 </style>

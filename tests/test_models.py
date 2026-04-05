@@ -40,3 +40,32 @@ def test_scanned_device_to_record_uses_label_contract():
     assert record["label_authoritative"] is True
     assert record["identity_status"] == "verified"
     assert record["source"] == "ping+mdns"
+
+
+def test_scanned_device_to_record_includes_distance_fields():
+    device = ScannedDevice(
+        ip="192.168.1.12",
+        label_info=LabelInfo(
+            label="Phone",
+            label_source="known",
+            label_authoritative=True,
+            identity_status="claimed",
+        ),
+        hostname="phone.local",
+        mac="aa:bb:cc:dd:ee:ff",
+        vendor="Apple",
+        source_channels=["ping"],
+        location_hint="Office",
+        location_confidence=0.66,
+        distance_meters=1.45,
+        rssi_dbm=-63,
+        estimated_via="sms-fingerprint",
+    )
+
+    record = device.to_record()
+
+    assert record["location_hint"] == "Office"
+    assert record["location_confidence"] == 0.66
+    assert record["distance_meters"] == 1.45
+    assert record["rssi_dbm"] == -63
+    assert record["estimated_via"] == "sms-fingerprint"

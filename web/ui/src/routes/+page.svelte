@@ -8,7 +8,7 @@
 	import RadarBackdrop from '$lib/components/RadarBackdrop.svelte';
 	import RadarPane from '$lib/components/RadarPane.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
-	import { fetchDevices } from '$lib/api';
+	import { estimateOnlineDevices, fetchDevices } from '$lib/api';
 	import type { Device } from '$lib/types';
 
 	const initialState = createInitialDashboardState();
@@ -17,6 +17,8 @@
 	let stats = $state(initialState.stats);
 	let selectedIp = $state<string | null>(null);
 	let connection = $state<ConnectionState>('connecting');
+	let isEstimatingOnline = $state(false);
+	let estimateNotice = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
 	const selectedDevice = $derived(devices.find((d) => d.ip === selectedIp) ?? null);
 	const unnamedCount = $derived(devices.filter((d) => d.identity_status === 'unidentified').length);
@@ -41,6 +43,28 @@
 
 	function selectDevice(ip: string) {
 		selectedIp = ip;
+	}
+
+	async function estimateOnline() {
+		isEstimatingOnline = true;
+		estimateNotice = null;
+		try {
+			const result = await estimateOnlineDevices('scanner');
+			const estimated = result.estimated_count;
+			const skipped = result.skipped_count;
+			estimateNotice = {
+				kind: 'ok',
+				message: `${estimated} estimated, ${skipped} skipped`
+			};
+			await hydrate();
+		} catch (err) {
+			estimateNotice = {
+				kind: 'error',
+				message: err instanceof Error ? err.message : 'Estimate failed'
+			};
+		} finally {
+			isEstimatingOnline = false;
+		}
 	}
 
 	let feed: LiveDeviceFeed | null = null;
@@ -71,7 +95,13 @@
 <RadarBackdrop />
 
 <div class="shell">
-	<TopBar {stats} {connection} />
+	<TopBar
+		{stats}
+		{connection}
+		onEstimateOnline={estimateOnline}
+		{isEstimatingOnline}
+		{estimateNotice}
+	/>
 
 	<main class="layout">
 		<div class="left-stack">

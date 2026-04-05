@@ -54,12 +54,25 @@ def load_fingerprints() -> list[dict[str, Any]]:
     for entry in data:
         if not isinstance(entry, dict):
             continue
-        room = entry.get("room")
-        sensor_position = entry.get("sensor_position")
-        device_key = entry.get("device_key")
+        room_value = entry.get("room")
+        sensor_position_value = entry.get("sensor_position")
+        device_key_value = entry.get("device_key")
         rssi_median = entry.get("rssi_median")
         sample_count = entry.get("sample_count")
-        if not all(isinstance(value, str) and value.strip() for value in (room, sensor_position, device_key)):
+        if not isinstance(room_value, str):
+            continue
+        room = room_value.strip()
+        if not room:
+            continue
+        if not isinstance(sensor_position_value, str):
+            continue
+        sensor_position = sensor_position_value.strip()
+        if not sensor_position:
+            continue
+        if not isinstance(device_key_value, str):
+            continue
+        device_key = device_key_value.strip().lower()
+        if not device_key:
             continue
         if not isinstance(rssi_median, (int, float)):
             continue
@@ -67,9 +80,9 @@ def load_fingerprints() -> list[dict[str, Any]]:
             continue
         normalized.append(
             {
-                "room": room.strip(),
-                "sensor_position": sensor_position.strip(),
-                "device_key": device_key.strip().lower(),
+                "room": room,
+                "sensor_position": sensor_position,
+                "device_key": device_key,
                 "rssi_median": float(rssi_median),
                 "sample_count": sample_count,
             }
@@ -93,6 +106,8 @@ def load_estimates() -> dict[str, dict[str, Any]]:
         room = entry.get("room")
         confidence = entry.get("confidence")
         estimated_via = entry.get("estimated_via")
+        distance_meters = entry.get("distance_meters")
+        rssi_dbm = entry.get("rssi_dbm")
         updated_at = entry.get("updated_at")
         if not isinstance(room, str) or not room.strip():
             continue
@@ -100,12 +115,18 @@ def load_estimates() -> dict[str, dict[str, Any]]:
             continue
         if not isinstance(estimated_via, str) or not estimated_via.strip():
             continue
+        if distance_meters is not None and not isinstance(distance_meters, (int, float)):
+            continue
+        if rssi_dbm is not None and not isinstance(rssi_dbm, int):
+            continue
         if not isinstance(updated_at, str) or not updated_at.strip():
             continue
         normalized[device_key.lower()] = {
             "room": room.strip(),
             "confidence": max(0.0, min(1.0, float(confidence))),
             "estimated_via": estimated_via.strip(),
+            "distance_meters": round(max(0.0, float(distance_meters)), 2) if distance_meters is not None else None,
+            "rssi_dbm": int(rssi_dbm) if rssi_dbm is not None else None,
             "updated_at": updated_at,
         }
     return normalized
@@ -115,12 +136,22 @@ def save_estimates(estimates: dict[str, dict[str, Any]]):
     write_json_atomic(LOCATION_ESTIMATES_FILE, estimates, indent=2)
 
 
-def set_estimate(device_key: str, *, room: str, confidence: float, estimated_via: str):
+def set_estimate(
+    device_key: str,
+    *,
+    room: str,
+    confidence: float,
+    estimated_via: str,
+    distance_meters: float,
+    rssi_dbm: int,
+):
     estimates = load_estimates()
     estimates[device_key.lower()] = {
         "room": room.strip(),
         "confidence": max(0.0, min(1.0, float(confidence))),
         "estimated_via": estimated_via.strip(),
+        "distance_meters": round(max(0.0, float(distance_meters)), 2),
+        "rssi_dbm": int(rssi_dbm),
         "updated_at": datetime.now().isoformat(),
     }
     save_estimates(estimates)

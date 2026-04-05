@@ -103,6 +103,8 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
                 source_channels=sources,
                 location_hint=location_info["room"] if location_info else None,
                 location_confidence=location_info["confidence"] if location_info else None,
+                distance_meters=location_info.get("distance_meters") if location_info else None,
+                rssi_dbm=location_info.get("rssi_dbm") if location_info else None,
                 estimated_via=location_info["estimated_via"] if location_info else None,
             )
         )

@@ -60,6 +60,11 @@ def test_merge_scan_preserves_authoritative_label_over_non_authoritative_update(
             "source": "ping+probe",
             "services": ["lockdownd (port 62078)"],
             "fingerprint": {},
+            "location_hint": "Office",
+            "location_confidence": 0.75,
+            "distance_meters": 2.4,
+            "rssi_dbm": -63,
+            "estimated_via": "sms-fingerprint",
         }
     ]
 
@@ -70,3 +75,5 @@ def test_merge_scan_preserves_authoritative_label_over_non_authoritative_update(
     assert device["label_source"] == "lockdownd"
     assert device["identity_status"] == "verified"
     assert device["status"] == "online"
+    assert device["location_hint"] == "Office"
+    assert device["distance_meters"] == 2.4

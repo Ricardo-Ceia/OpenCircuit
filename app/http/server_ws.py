@@ -7,6 +7,7 @@ import logging
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.domain.identity import assign_stable_aliases
+from app.location.service import LocationService
 from app.network.scanner import BackgroundScanner
 from app.storage.device_history import get_history_stats
 from app.http.server_auth import AuthManager
@@ -29,11 +30,28 @@ class WebSocketManager:
         self._max_clients = max_clients
         self._max_message_bytes = max_message_bytes
         self._allowed_client_messages = set(allowed_client_messages)
+        self._location_service = LocationService()
         self.connected_clients: set[WebSocket] = set()
         self.last_broadcast_stamp = ""
 
+    def _hydrate_location_estimates(self, devices: list[dict]) -> list[dict]:
+        hydrated: list[dict] = []
+        for device in devices:
+            next_device = dict(device)
+            mac = next_device.get("mac")
+            if isinstance(mac, str) and mac.strip() and mac.strip().lower() != "unknown":
+                estimate = self._location_service.get_estimate(mac)
+                if estimate:
+                    next_device["location_hint"] = estimate.get("room")
+                    next_device["location_confidence"] = estimate.get("confidence")
+                    next_device["distance_meters"] = estimate.get("distance_meters")
+                    next_device["rssi_dbm"] = estimate.get("rssi_dbm")
+                    next_device["estimated_via"] = estimate.get("estimated_via")
+            hydrated.append(next_device)
+        return hydrated
+
     def _build_state_payload(self) -> dict:
-        devices = [dict(d) for d in self._scanner.get_devices()]
+        devices = self._hydrate_location_estimates([dict(d) for d in self._scanner.get_devices()])
         assign_stable_aliases(devices)
         stats = get_history_stats(self._scanner.get_history())
         return {
@@ -61,7 +79,7 @@ class WebSocketManager:
             return
 
         stats = get_history_stats(self._scanner.get_history())
-        payload_devices = [dict(d) for d in devices]
+        payload_devices = self._hydrate_location_estimates([dict(d) for d in devices])
         assign_stable_aliases(payload_devices)
 
         stamp = self._broadcast_stamp(payload_devices, stats)

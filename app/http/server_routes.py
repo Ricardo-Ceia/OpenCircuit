@@ -40,8 +40,25 @@ class EstimateRequest(BaseModel):
     samples: list[BleSampleRequest]
 
 
-def _create_devices_response(scanner: BackgroundScanner) -> dict[str, Any]:
+class EstimateOnlineRequest(BaseModel):
+    sensor_position: str = "scanner"
+
+
+def _create_devices_response(scanner: BackgroundScanner, *, location_service: LocationService) -> dict[str, Any]:
     devices = [dict(device) for device in scanner.get_devices()]
+    for device in devices:
+        mac = device.get("mac")
+        if not isinstance(mac, str) or not mac.strip() or mac.strip().lower() == "unknown":
+            continue
+        estimate = location_service.get_estimate(mac)
+        if not estimate:
+            continue
+        device["location_hint"] = estimate.get("room")
+        device["location_confidence"] = estimate.get("confidence")
+        device["distance_meters"] = estimate.get("distance_meters")
+        device["rssi_dbm"] = estimate.get("rssi_dbm")
+        device["estimated_via"] = estimate.get("estimated_via")
+
     assign_stable_aliases(devices)
     stats = get_history_stats(scanner.get_history())
     return {
@@ -77,7 +94,7 @@ def create_routes(*, scanner: BackgroundScanner, require_api_auth, static_dir: P
 
     @router.get("/api/devices", dependencies=[Depends(require_api_auth)])
     async def list_devices():
-        return _create_devices_response(scanner)
+        return _create_devices_response(scanner, location_service=location_service)
 
     @router.get("/api/devices/{ip}", dependencies=[Depends(require_api_auth)])
     async def get_device(ip: str):
@@ -132,6 +149,17 @@ def create_routes(*, scanner: BackgroundScanner, require_api_auth, static_dir: P
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"status": "ok", "estimates": estimates}
+
+    @router.post("/api/location/estimate-online", dependencies=[Depends(require_api_auth)])
+    async def estimate_online_location(body: EstimateOnlineRequest):
+        try:
+            result = location_service.estimate_online_devices(
+                devices=[dict(device) for device in scanner.get_devices()],
+                sensor_position=body.sensor_position,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"status": "ok", **result}
 
     @router.get("/api/location/{device_key}", dependencies=[Depends(require_api_auth)])
     async def get_location(device_key: str):

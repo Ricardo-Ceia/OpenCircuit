@@ -29,6 +29,8 @@ export type Device = {
 	last_seen?: string;
 	location_hint?: string;
 	location_confidence?: number;
+	distance_meters?: number;
+	rssi_dbm?: number;
 	estimated_via?: string;
 };
 

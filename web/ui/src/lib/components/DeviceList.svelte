@@ -9,6 +9,13 @@
 	};
 
 	let { devices, selectedIp, onSelect }: Props = $props();
+
+	function formatDistance(distanceMeters: number | undefined): string {
+		if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters)) {
+			return 'distance n/a';
+		}
+		return `${distanceMeters.toFixed(2)} pseudo-m`;
+	}
 </script>
 
 <section class="panel panel-list">
@@ -34,8 +41,11 @@
 					</div>
 					<div class="card-bottom">
 						<span class="ip">{device.ip}</span>
-						<span class="clue">{deviceClue(device)}</span>
+						<span class="clue">{deviceClue(device) || formatDistance(device.distance_meters)}</span>
 					</div>
+					{#if typeof device.distance_meters === 'number'}
+						<div class="distance">{formatDistance(device.distance_meters)}</div>
+					{/if}
 				</button>
 			{/each}
 		</div>
@@ -203,6 +213,13 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.distance {
+		font-size: 0.6rem;
+		letter-spacing: 0.07em;
+		text-transform: uppercase;
+		color: var(--tone-cyan);
 	}
 
 </style>

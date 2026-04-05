@@ -74,6 +74,11 @@ function parseDevice(raw: unknown): Device | null {
 			typeof raw.location_confidence === 'number' && Number.isFinite(raw.location_confidence)
 				? raw.location_confidence
 				: undefined,
+		distance_meters:
+			typeof raw.distance_meters === 'number' && Number.isFinite(raw.distance_meters)
+				? raw.distance_meters
+				: undefined,
+		rssi_dbm: typeof raw.rssi_dbm === 'number' && Number.isFinite(raw.rssi_dbm) ? Math.trunc(raw.rssi_dbm) : undefined,
 		estimated_via: asString(raw.estimated_via) || undefined
 	};
 }
@@ -239,6 +244,119 @@ export async function submitBleEstimate(
 		}
 		throw new Error(detail);
 	}
+}
+
+export type EstimateOnlineResponse = {
+	estimated_count: number;
+	skipped_count: number;
+	online_count: number;
+	estimated: Array<{
+		device_key: string;
+		room: string;
+		confidence: number;
+		distance_meters: number;
+		rssi_dbm: number;
+		estimated_via: string;
+	}>;
+	skipped: Array<{
+		ip: string | undefined;
+		device_key: string | undefined;
+		reason: string;
+	}>;
+};
+
+export async function estimateOnlineDevices(sensorPosition = 'scanner'): Promise<EstimateOnlineResponse> {
+	const res = await fetch('/api/location/estimate-online', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ sensor_position: sensorPosition })
+	});
+
+	if (!res.ok) {
+		let detail = `Estimate failed: ${res.status}`;
+		try {
+			const payload = (await res.json()) as { detail?: string };
+			if (payload.detail) {
+				detail = payload.detail;
+			}
+		} catch {
+			// ignore parse error
+		}
+		throw new Error(detail);
+	}
+
+	const payload = (await res.json()) as {
+		estimated_count?: unknown;
+		skipped_count?: unknown;
+		online_count?: unknown;
+		estimated?: unknown;
+		skipped?: unknown;
+	};
+
+	const estimated = Array.isArray(payload.estimated)
+		? payload.estimated
+				.map((item) => {
+					if (!isRecord(item)) {
+						return null;
+					}
+					const deviceKey = asString(item.device_key);
+					const room = asString(item.room);
+					const confidence = typeof item.confidence === 'number' ? item.confidence : NaN;
+					const distanceMeters = typeof item.distance_meters === 'number' ? item.distance_meters : NaN;
+					const rssiDbm = typeof item.rssi_dbm === 'number' ? Math.trunc(item.rssi_dbm) : NaN;
+					const estimatedVia = asString(item.estimated_via);
+					if (
+						!deviceKey ||
+						!room ||
+						!Number.isFinite(confidence) ||
+						!Number.isFinite(distanceMeters) ||
+						!Number.isFinite(rssiDbm) ||
+						!estimatedVia
+					) {
+						return null;
+					}
+					return {
+						device_key: deviceKey,
+						room,
+						confidence,
+						distance_meters: distanceMeters,
+						rssi_dbm: rssiDbm,
+						estimated_via: estimatedVia
+					};
+				})
+				.filter((item): item is EstimateOnlineResponse['estimated'][number] => item !== null)
+		: [];
+
+	const skipped = Array.isArray(payload.skipped)
+		? payload.skipped
+				.map((item) => {
+					if (!isRecord(item)) {
+						return null;
+					}
+					const reason = asString(item.reason);
+					if (!reason) {
+						return null;
+					}
+					const ip = asString(item.ip) || undefined;
+					const deviceKey = asString(item.device_key) || undefined;
+					return {
+						ip,
+						device_key: deviceKey,
+						reason
+					};
+				})
+				.filter((item): item is EstimateOnlineResponse['skipped'][number] => item !== null)
+		: [];
+
+	return {
+		estimated_count: typeof payload.estimated_count === 'number' ? payload.estimated_count : estimated.length,
+		skipped_count: typeof payload.skipped_count === 'number' ? payload.skipped_count : skipped.length,
+		online_count: typeof payload.online_count === 'number' ? payload.online_count : estimated.length + skipped.length,
+		estimated,
+		skipped
+	};
 }
 
 export function normalizeSources(device: Device): string[] {

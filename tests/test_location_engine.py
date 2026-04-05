@@ -1,4 +1,4 @@
-from app.location.engine import aggregate_calibration_samples, estimate_room
+from app.location.engine import aggregate_calibration_samples, estimate_room, rssi_to_pseudo_meters
 
 
 def test_aggregate_calibration_samples_groups_by_room_position_and_device():
@@ -30,3 +30,11 @@ def test_estimate_room_returns_best_match_and_confidence():
     assert result["room"] == "Office"
     assert result["estimated_via"] == "sms-fingerprint"
     assert 0.0 <= result["confidence"] <= 1.0
+
+
+def test_rssi_to_pseudo_meters_monotonic_for_weaker_signal():
+    near = rssi_to_pseudo_meters(-50)
+    far = rssi_to_pseudo_meters(-80)
+
+    assert near > 0
+    assert far > near

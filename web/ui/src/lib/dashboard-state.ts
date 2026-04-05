@@ -35,7 +35,7 @@ function payloadStamp(payload: DevicesResponse): string {
 	];
 	for (const device of payload.devices ?? []) {
 		parts.push(
-			`${device.ip}|${device.label}|${device.identity_status}|${device.status ?? ''}|${device.last_seen ?? ''}|${device.label_source ?? ''}`
+			`${device.ip}|${device.label}|${device.identity_status}|${device.status ?? ''}|${device.last_seen ?? ''}|${device.label_source ?? ''}|${device.location_hint ?? ''}|${device.location_confidence ?? ''}|${device.distance_meters ?? ''}|${device.rssi_dbm ?? ''}|${device.estimated_via ?? ''}`
 		);
 	}
 	return parts.join('~');
