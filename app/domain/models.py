@@ -78,6 +78,9 @@ class ScannedDevice:
     source_channels: list[str] = field(default_factory=list)
     fingerprint: DeviceFingerprint = field(default_factory=DeviceFingerprint)
     device_type: str | None = None
+    location_hint: str | None = None
+    location_confidence: float | None = None
+    estimated_via: str | None = None
 
     def to_record(self) -> dict[str, Any]:
         return {
@@ -93,4 +96,7 @@ class ScannedDevice:
             "fingerprint": self.fingerprint.to_dict(),
             "services": list(self.services),
             "source": "+".join(self.source_channels),
+            "location_hint": self.location_hint,
+            "location_confidence": self.location_confidence,
+            "estimated_via": self.estimated_via,
         }

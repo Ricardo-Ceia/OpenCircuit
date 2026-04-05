@@ -2,6 +2,9 @@
 LOCAL_ROUTER_SETUP.md
 devices.json
 known_devices.json
+location_rooms.json
+location_fingerprints.json
+location_estimates.json
 future_things.md
 debug_log.txt
 

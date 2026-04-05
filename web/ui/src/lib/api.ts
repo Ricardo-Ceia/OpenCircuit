@@ -1,5 +1,10 @@
 import type { Device, DeviceStats, DevicesResponse, DeviceStatus, IdentityStatus } from '$lib/types';
 
+export type BleSample = {
+	device_key: string;
+	rssi_dbm: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
@@ -63,7 +68,13 @@ function parseDevice(raw: unknown): Device | null {
 		fingerprint: isRecord(raw.fingerprint) ? raw.fingerprint : undefined,
 		status: asDeviceStatus(raw.status),
 		first_seen: asString(raw.first_seen) || undefined,
-		last_seen: asString(raw.last_seen) || undefined
+		last_seen: asString(raw.last_seen) || undefined,
+		location_hint: asString(raw.location_hint) || undefined,
+		location_confidence:
+			typeof raw.location_confidence === 'number' && Number.isFinite(raw.location_confidence)
+				? raw.location_confidence
+				: undefined,
+		estimated_via: asString(raw.estimated_via) || undefined
 	};
 }
 
@@ -133,6 +144,98 @@ export async function saveDeviceName(mac: string, name: string): Promise<void> {
 			detail = data.detail ?? detail;
 		} catch {
 			// ignore JSON parse errors
+		}
+		throw new Error(detail);
+	}
+}
+
+export async function fetchLocationRooms(): Promise<string[]> {
+	const res = await fetch('/api/location/rooms');
+	if (!res.ok) {
+		throw new Error(`Failed to fetch location rooms: ${res.status}`);
+	}
+	const payload = (await res.json()) as { rooms?: unknown };
+	if (!Array.isArray(payload.rooms)) {
+		return [];
+	}
+	return payload.rooms.filter((room): room is string => typeof room === 'string' && room.trim().length > 0);
+}
+
+export async function saveLocationRooms(rooms: string[]): Promise<string[]> {
+	const res = await fetch('/api/location/rooms', {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ rooms })
+	});
+	if (!res.ok) {
+		throw new Error(`Failed to save location rooms: ${res.status}`);
+	}
+	const payload = (await res.json()) as { rooms?: unknown };
+	if (!Array.isArray(payload.rooms)) {
+		return [];
+	}
+	return payload.rooms.filter((room): room is string => typeof room === 'string' && room.trim().length > 0);
+}
+
+export async function submitBleCalibration(
+	params: {
+		room: string;
+		sensorPosition: string;
+		samples: BleSample[];
+	}
+): Promise<void> {
+	const res = await fetch('/api/location/calibration', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			room: params.room,
+			sensor_position: params.sensorPosition,
+			samples: params.samples
+		})
+	});
+	if (!res.ok) {
+		let detail = `Calibration failed: ${res.status}`;
+		try {
+			const payload = (await res.json()) as { detail?: string };
+			if (payload.detail) {
+				detail = payload.detail;
+			}
+		} catch {
+			// ignore parse error
+		}
+		throw new Error(detail);
+	}
+}
+
+export async function submitBleEstimate(
+	params: {
+		sensorPosition: string;
+		samples: BleSample[];
+	}
+): Promise<void> {
+	const res = await fetch('/api/location/estimate', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			sensor_position: params.sensorPosition,
+			samples: params.samples
+		})
+	});
+	if (!res.ok) {
+		let detail = `Estimate failed: ${res.status}`;
+		try {
+			const payload = (await res.json()) as { detail?: string };
+			if (payload.detail) {
+				detail = payload.detail;
+			}
+		} catch {
+			// ignore parse error
 		}
 		throw new Error(detail);
 	}

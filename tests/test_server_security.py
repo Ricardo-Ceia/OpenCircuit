@@ -151,3 +151,10 @@ def test_websocket_closes_on_invalid_client_message(monkeypatch):
 
     assert ws.accepted is True
     assert ws.closed_code == 1008
+
+
+def test_location_room_endpoints_require_auth(monkeypatch):
+    request = DummyRequest()
+    with pytest.raises(HTTPException) as exc:
+        server.require_api_auth(request)  # type: ignore[arg-type]
+    assert exc.value.status_code == 401

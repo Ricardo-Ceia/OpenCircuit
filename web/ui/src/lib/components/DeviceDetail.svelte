@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { saveDeviceName, normalizeSources } from '$lib/api';
+	import {
+		fetchLocationRooms,
+		normalizeSources,
+		saveDeviceName,
+		saveLocationRooms,
+		submitBleCalibration,
+		submitBleEstimate
+	} from '$lib/api';
 	import type { Device } from '$lib/types';
 	import { deviceClue, isNamable, isOnline, relativeTime } from '$lib/utils';
 
@@ -12,7 +19,21 @@
 
 	let inputValue = $state('');
 	let isSaving = $state(false);
+	let rooms = $state<string[]>([]);
+	let roomInput = $state('');
+	let selectedRoom = $state('');
+	let sensorPosition = $state('desk-scan');
+	let bleDeviceKey = $state('');
+	let bleRssi = $state('-67');
+	let isSavingRoom = $state(false);
+	let isCalibrating = $state(false);
+	let isEstimating = $state(false);
 	let notice = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+	let locationNotice = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+
+	$effect(() => {
+		void loadRooms();
+	});
 
 	$effect(() => {
 		if (!device) {
@@ -20,7 +41,19 @@
 			return;
 		}
 		inputValue = device.identity_status === 'claimed' ? (device.label ?? '') : '';
+		bleDeviceKey = (device.mac ?? '').trim();
 	});
+
+	async function loadRooms() {
+		try {
+			rooms = await fetchLocationRooms();
+			if (rooms.length > 0 && !selectedRoom) {
+				selectedRoom = rooms[0];
+			}
+		} catch {
+			// keep defaults if location endpoint unavailable
+		}
+	}
 
 	async function commitName() {
 		if (!device || !isNamable(device)) {
@@ -42,6 +75,96 @@
 			notice = { kind: 'error', message: err instanceof Error ? err.message : 'Save failed' };
 		} finally {
 			isSaving = false;
+		}
+	}
+
+	async function addRoom() {
+		const nextRoom = roomInput.trim();
+		if (!nextRoom) {
+			locationNotice = { kind: 'error', message: 'Room name cannot be empty' };
+			return;
+		}
+		if (rooms.some((room) => room.toLowerCase() === nextRoom.toLowerCase())) {
+			locationNotice = { kind: 'error', message: 'Room already exists' };
+			return;
+		}
+
+		isSavingRoom = true;
+		locationNotice = null;
+		try {
+			rooms = await saveLocationRooms([...rooms, nextRoom]);
+			selectedRoom = nextRoom;
+			roomInput = '';
+			locationNotice = { kind: 'ok', message: `Room '${nextRoom}' saved` };
+		} catch (err) {
+			locationNotice = { kind: 'error', message: err instanceof Error ? err.message : 'Room save failed' };
+		} finally {
+			isSavingRoom = false;
+		}
+	}
+
+	async function calibrateBleRoom() {
+		if (!selectedRoom) {
+			locationNotice = { kind: 'error', message: 'Select a room first' };
+			return;
+		}
+		const deviceKey = bleDeviceKey.trim();
+		if (!deviceKey) {
+			locationNotice = { kind: 'error', message: 'Device key (MAC) is required' };
+			return;
+		}
+		const rssi = Number.parseInt(bleRssi, 10);
+		if (!Number.isFinite(rssi)) {
+			locationNotice = { kind: 'error', message: 'RSSI must be an integer (e.g. -67)' };
+			return;
+		}
+
+		isCalibrating = true;
+		locationNotice = null;
+		try {
+			await submitBleCalibration({
+				room: selectedRoom,
+				sensorPosition,
+				samples: [{ device_key: deviceKey, rssi_dbm: rssi }]
+			});
+			locationNotice = { kind: 'ok', message: `Calibration sample saved for ${selectedRoom}` };
+		} catch (err) {
+			locationNotice = {
+				kind: 'error',
+				message: err instanceof Error ? err.message : 'Calibration failed'
+			};
+		} finally {
+			isCalibrating = false;
+		}
+	}
+
+	async function estimateBleRoom() {
+		const deviceKey = bleDeviceKey.trim();
+		if (!deviceKey) {
+			locationNotice = { kind: 'error', message: 'Device key (MAC) is required' };
+			return;
+		}
+		const rssi = Number.parseInt(bleRssi, 10);
+		if (!Number.isFinite(rssi)) {
+			locationNotice = { kind: 'error', message: 'RSSI must be an integer (e.g. -67)' };
+			return;
+		}
+
+		isEstimating = true;
+		locationNotice = null;
+		try {
+			await submitBleEstimate({
+				sensorPosition,
+				samples: [{ device_key: deviceKey, rssi_dbm: rssi }]
+			});
+			locationNotice = { kind: 'ok', message: 'Estimate submitted, wait next scan update' };
+		} catch (err) {
+			locationNotice = {
+				kind: 'error',
+				message: err instanceof Error ? err.message : 'Estimate failed'
+			};
+		} finally {
+			isEstimating = false;
 		}
 	}
 
@@ -90,6 +213,40 @@
 		{#if notice}
 			<div class={`notice ${notice.kind}`}>{notice.message}</div>
 		{/if}
+
+		<div class="location-tools">
+			<div class="location-head">BLE Location (SMS Fingerprint)</div>
+			<div class="location-grid">
+				<div class="location-row">
+					<input type="text" bind:value={roomInput} placeholder="Add room (e.g. Office)" />
+					<button type="button" onclick={addRoom} disabled={isSavingRoom}>{isSavingRoom ? 'Saving…' : 'Add Room'}</button>
+				</div>
+				<div class="location-row two">
+					<select bind:value={selectedRoom}>
+						<option value="">Select room</option>
+						{#each rooms as room}
+							<option value={room}>{room}</option>
+						{/each}
+					</select>
+					<input type="text" bind:value={sensorPosition} placeholder="Sensor position" />
+				</div>
+				<div class="location-row two">
+					<input type="text" bind:value={bleDeviceKey} placeholder="Device key (MAC)" />
+					<input type="text" bind:value={bleRssi} placeholder="RSSI dBm (e.g. -67)" />
+				</div>
+				<div class="location-row actions">
+					<button type="button" onclick={calibrateBleRoom} disabled={isCalibrating}>
+						{isCalibrating ? 'Calibrating…' : 'Calibrate Room'}
+					</button>
+					<button type="button" onclick={estimateBleRoom} disabled={isEstimating}>
+						{isEstimating ? 'Estimating…' : 'Estimate Room'}
+					</button>
+				</div>
+			</div>
+			{#if locationNotice}
+				<div class={`notice ${locationNotice.kind}`}>{locationNotice.message}</div>
+			{/if}
+		</div>
 
 		<div class="grid">
 			<div class="row">
@@ -311,6 +468,62 @@
 	}
 
 	.rename-row button:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.location-tools {
+		display: grid;
+		gap: 0.55rem;
+		padding: 0.6rem;
+		border: 1px solid var(--edge-soft);
+		border-radius: 0.38rem;
+		background: color-mix(in oklab, var(--panel-alt) 84%, black);
+	}
+
+	.location-head {
+		font-size: 0.64rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--tone-muted-bright);
+	}
+
+	.location-grid {
+		display: grid;
+		gap: 0.45rem;
+	}
+
+	.location-row {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 0.5rem;
+	}
+
+	.location-row.two {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.location-row.actions {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.location-row input,
+	.location-row select,
+	.location-row button {
+		font: inherit;
+		font-size: 0.72rem;
+		padding: 0.5rem 0.58rem;
+		border-radius: 0.34rem;
+		border: 1px solid var(--edge-strong);
+		background: color-mix(in oklab, var(--panel-alt) 88%, black);
+		color: var(--tone-text-bright);
+	}
+
+	.location-row button {
+		cursor: pointer;
+	}
+
+	.location-row button:disabled {
 		opacity: 0.55;
 		cursor: not-allowed;
 	}

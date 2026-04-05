@@ -4,6 +4,7 @@ import logging
 
 from app.domain.identity import resolve_label
 from app.domain.models import DeviceFingerprint, LabelInfo, ScannedDevice
+from app.location.service import LocationService
 from app.network.scan.arp import mac_discovery
 from app.network.scan.dns import bulk_reverse_dns
 from app.network.scan.mdns import mdns_discovery
@@ -12,6 +13,7 @@ from app.network.scan.probe import bulk_service_probe
 from app.storage.known_devices import get_known_name
 
 log = logging.getLogger(__name__)
+_LOCATION_SERVICE = LocationService()
 
 
 def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
@@ -86,6 +88,8 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
         if ip in service_map:
             sources.append("probe")
 
+        location_info = _LOCATION_SERVICE.get_estimate(mac)
+
         scanned_devices.append(
             ScannedDevice(
                 ip=ip,
@@ -97,6 +101,9 @@ def run_single_scan(subnet: str, mdns_timeout: int = 10) -> list[dict]:
                 fingerprint=DeviceFingerprint.from_raw(fingerprint),
                 services=list(services),
                 source_channels=sources,
+                location_hint=location_info["room"] if location_info else None,
+                location_confidence=location_info["confidence"] if location_info else None,
+                estimated_via=location_info["estimated_via"] if location_info else None,
             )
         )
 

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.domain.identity import assign_stable_aliases
+from app.location.service import LocationService
 from app.network.scanner import BackgroundScanner
 from app.storage.device_history import get_history_stats
 from app.storage.known_devices import set_known_name
@@ -17,6 +18,26 @@ from app.http.server_auth import AUTH_COOKIE_NAME
 
 class NameRequest(BaseModel):
     name: str
+
+
+class RoomListRequest(BaseModel):
+    rooms: list[str]
+
+
+class BleSampleRequest(BaseModel):
+    device_key: str
+    rssi_dbm: int
+
+
+class CalibrationRequest(BaseModel):
+    room: str
+    sensor_position: str
+    samples: list[BleSampleRequest]
+
+
+class EstimateRequest(BaseModel):
+    sensor_position: str
+    samples: list[BleSampleRequest]
 
 
 def _create_devices_response(scanner: BackgroundScanner) -> dict[str, Any]:
@@ -32,6 +53,7 @@ def _create_devices_response(scanner: BackgroundScanner) -> dict[str, Any]:
 
 def create_routes(*, scanner: BackgroundScanner, require_api_auth, static_dir: Path, auth_token: str) -> APIRouter:
     router = APIRouter()
+    location_service = LocationService()
 
     @router.get("/")
     async def index():
@@ -79,5 +101,43 @@ def create_routes(*, scanner: BackgroundScanner, require_api_auth, static_dir: P
             "name": body.name.strip(),
             "status": "ok",
         }
+
+    @router.get("/api/location/rooms", dependencies=[Depends(require_api_auth)])
+    async def list_rooms():
+        return {"rooms": location_service.list_rooms()}
+
+    @router.put("/api/location/rooms", dependencies=[Depends(require_api_auth)])
+    async def set_rooms(body: RoomListRequest):
+        return {"rooms": location_service.set_rooms(body.rooms)}
+
+    @router.post("/api/location/calibration", dependencies=[Depends(require_api_auth)])
+    async def calibrate_location(body: CalibrationRequest):
+        try:
+            result = location_service.calibrate(
+                room=body.room,
+                sensor_position=body.sensor_position,
+                samples=[sample.model_dump() for sample in body.samples],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"status": "ok", **result}
+
+    @router.post("/api/location/estimate", dependencies=[Depends(require_api_auth)])
+    async def estimate_location(body: EstimateRequest):
+        try:
+            estimates = location_service.estimate(
+                sensor_position=body.sensor_position,
+                samples=[sample.model_dump() for sample in body.samples],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"status": "ok", "estimates": estimates}
+
+    @router.get("/api/location/{device_key}", dependencies=[Depends(require_api_auth)])
+    async def get_location(device_key: str):
+        estimate = location_service.get_estimate(device_key)
+        if not estimate:
+            raise HTTPException(status_code=404, detail="Location estimate not found")
+        return estimate
 
     return router
